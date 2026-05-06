@@ -576,56 +576,23 @@ app.get('*', (req, res) => {
 });
 const ytdl = require('@distube/ytdl-core');
 
-// ── Stream audio (for iOS background playback) ──────────────
-app.get('/api/stream/:videoId', async (req, res) => {
-  const { videoId } = req.params;
-  
+app.get('/api/stream/:id', async (req, res) => {
   try {
-    const url = `https://www.youtube.com/watch?v=${videoId}`;
-    
-    // Get audio-only info
-    const info = await ytdl.getInfo(url);
-    const audioFormat = ytdl.chooseFormat(info.formats, {
-      quality: 'highestaudio',
+    const url = `https://www.youtube.com/watch?v=${req.params.id}`;
+
+    res.header('Content-Type', 'audio/mp4');
+
+    ytdl(url, {
       filter: 'audioonly',
-    });
+      quality: 'highestaudio',
+      highWaterMark: 1 << 25,
+    }).pipe(res);
 
-    if (!audioFormat) {
-      return res.status(404).json({ error: 'No audio stream found' });
-    }
-
-    // Set headers for streaming
-    res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Accept-Ranges', 'bytes');
-    res.setHeader('Cache-Control', 'public, max-age=3600');
-
-    // Handle range requests (needed for seeking on iOS)
-    const range = req.headers.range;
-    const stream = ytdl(url, {
-      format: audioFormat,
-      ...(range && { range: parseRange(range) }),
-    });
-
-    stream.on('error', (err) => {
-      console.error('Stream error:', err.message);
-      if (!res.headersSent) res.status(500).end();
-    });
-
-    stream.pipe(res);
   } catch (err) {
-    console.error('Stream endpoint error:', err.message);
-    res.status(500).json({ error: 'Stream failed', detail: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Stream failed' });
   }
 });
-
-function parseRange(rangeHeader) {
-  const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
-  if (!match) return null;
-  return {
-    start: parseInt(match[1]),
-    end: match[2] ? parseInt(match[2]) : undefined,
-  };
-}
 
 app.listen(PORT, () =>
   console.log(`🎵 Mestify backend running → http://localhost:${PORT}`)
