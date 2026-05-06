@@ -1343,7 +1343,7 @@ document.getElementById('searchInput').addEventListener('input', e => {
       const data = await apiFetch(`/api/suggest?q=${encodeURIComponent(q)}`);
       renderSuggestions(data.suggestions || []);
     } catch(_) { hideSuggestions(); }
-  }, 250);
+  },700);
 });
 
 document.getElementById('searchInput').addEventListener('keydown', e => {
