@@ -1,4 +1,6 @@
 require('dotenv').config();
+const YTMusic = require('ytmusic-api');
+const ytmusic = new YTMusic();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -17,15 +19,15 @@ const YT_BASE = 'https://www.googleapis.com/youtube/v3';
 //  When one key hits quota (403), the next is used automatically.
 //  Each key gives 10,000 units/day → 3 keys = 30,000 units/day.
 // ═══════════════════════════════════════════════════════════════
-const API_KEYS = [
-  process.env.YT_API_KEY_1, 
-  process.env.YT_API_KEY_2, 
-  process.env.YT_API_KEY_3,
-  process.env.YT_API_KEY_4
-  // Add more keys below (create free projects at console.cloud.google.com):
-  // 'AIzaSy_YOUR_SECOND_KEY_HERE',
-  // 'AIzaSy_YOUR_THIRD_KEY_HERE',
-];
+// const API_KEYS = [
+//   process.env.YT_API_KEY_1, 
+//   process.env.YT_API_KEY_2, 
+//   process.env.YT_API_KEY_3,
+//   process.env.YT_API_KEY_4
+//   // Add more keys below (create free projects at console.cloud.google.com):
+//   // 'AIzaSy_YOUR_SECOND_KEY_HERE',
+//   // 'AIzaSy_YOUR_THIRD_KEY_HERE',
+// ];
 const exhaustedUntil = {}; // key → timestamp when it can be retried (next midnight)
 let keyIndex = 0;
 
@@ -60,24 +62,24 @@ function markKeyExhausted(key) {
  * Quota-aware YouTube API call with automatic key rotation.
  * Retries once with the next key if quota is exceeded.
  */
-async function ytGet(url, params) {
-  const key = getActiveKey();
-  try {
-    const res = await axios.get(url, { params: { ...params, key } });
-    return res;
-  } catch (err) {
-    const status = err.response?.status;
-    const reason = err.response?.data?.error?.errors?.[0]?.reason;
-    if (status === 403 && (reason === 'quotaExceeded' || reason === 'dailyLimitExceeded')) {
-      markKeyExhausted(key);
-      const nextKey = getActiveKey();
-      if (nextKey === key) throw err; // all keys exhausted, give up
-      console.log(`[KeyRotate] Switched to key ...${nextKey.slice(-6)}`);
-      return axios.get(url, { params: { ...params, key: nextKey } });
-    }
-    throw err;
-  }
-}
+// async function ytGet(url, params) {
+//   const key = getActiveKey();
+//   try {
+//     const res = await axios.get(url, { params: { ...params, key } });
+//     return res;
+//   } catch (err) {
+//     const status = err.response?.status;
+//     const reason = err.response?.data?.error?.errors?.[0]?.reason;
+//     if (status === 403 && (reason === 'quotaExceeded' || reason === 'dailyLimitExceeded')) {
+//       markKeyExhausted(key);
+//       const nextKey = getActiveKey();
+//       if (nextKey === key) throw err; // all keys exhausted, give up
+//       console.log(`[KeyRotate] Switched to key ...${nextKey.slice(-6)}`);
+//       return axios.get(url, { params: { ...params, key: nextKey } });
+//     }
+//     throw err;
+//   }
+// }
 
 
 // ── Search suggestions (autocomplete) ────────────────────────
@@ -100,78 +102,57 @@ app.get('/api/suggest', async (req, res) => {
 
 // ── Search songs ──────────────────────────────────────────────
 app.get('/api/search', async (req, res) => {
-  const { q, pageToken } = req.query;
-  if (!q) return res.status(400).json({ error: 'Query required' });
-
   try {
-    const { data } = await ytGet(`${YT_BASE}/search`, {
-      part: 'snippet',
-      q: `${q} song official audio`,
-      type: 'video',
-      videoCategoryId: '10',
-      maxResults: 8,
-      videoEmbeddable: 'true',
-      videoSyndicated: 'true',
-      videoDuration: 'medium',
-      safeSearch: 'none',
-      pageToken: pageToken || undefined,
-    });
+    const q = req.query.q;
 
-    const items = data.items.map((item) => ({
-      id: item.id.videoId,
-      title: item.snippet.title,
-      artist: item.snippet.channelTitle,
-      thumbnail: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.default?.url,
-      publishedAt: item.snippet.publishedAt,
+    if (!q) {
+      return res.status(400).json({
+        error: 'Query required'
+      });
+    }
+
+    const results = await ytmusic.searchSongs(q);
+
+    const items = results.slice(0, 10).map(song => ({
+      id: song.videoId,
+      title: song.name,
+      artist: song.artist?.name || 'Unknown',
+      thumbnail: song.thumbnails?.[0]?.url || '',
     }));
 
-    res.json({ items, nextPageToken: data.nextPageToken || null });
+    res.json({ items });
+
   } catch (err) {
-    console.error('Search error:', err.response?.data || err.message);
-    res.status(500).json({ error: 'Search failed', detail: err.response?.data?.error?.message });
+    console.error(err);
+
+    res.status(500).json({
+      error: 'Search failed'
+    });
   }
 });
 
 // ── Trending / charts ─────────────────────────────────────────
 app.get('/api/trending', async (req, res) => {
-  const { genre = 'pop', pageToken } = req.query;
-
-  const genreMap = {
-    pop: 'pop hits 2025',
-    hiphop: 'hip hop hits 2025',
-    rock: 'rock hits 2025',
-    electronic: 'electronic dance music 2025',
-    rnb: 'rnb songs 2025',
-    bollywood: 'bollywood songs 2025',
-    indie: 'indie pop songs 2025',
-  };
-
   try {
-    const { data } = await ytGet(`${YT_BASE}/search`, {
-      part: 'snippet',
-      q: genreMap[genre] || genreMap.pop,
-      type: 'video',
-      videoCategoryId: '10',
-      order: 'viewCount',
-      maxResults: 20,
-      videoEmbeddable: 'true',
-      videoSyndicated: 'true',
-      videoDuration: 'medium',
-      pageToken: pageToken || undefined,
-    });
+    const genre = req.query.genre || 'pop';
 
-    const items = data.items.map((item) => ({
-      id: item.id.videoId,
-      title: item.snippet.title,
-      artist: item.snippet.channelTitle,
-      thumbnail: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.default?.url,
-      publishedAt: item.snippet.publishedAt,
+    const results = await ytmusic.searchSongs(`${genre} hits`);
+
+    const items = results.slice(0, 20).map(song => ({
+      id: song.videoId,
+      title: song.name,
+      artist: song.artist?.name || 'Unknown',
+      thumbnail: song.thumbnails?.[0]?.url || '',
     }));
 
-    res.json({ items, nextPageToken: data.nextPageToken || null });
+    res.json({ items });
+
   } catch (err) {
-    console.error('Trending error:', err.response?.data || err.message);
-    res.status(500).json({ error: 'Trending fetch failed', detail: err.response?.data?.error?.message });
+    console.error(err);
+
+    res.status(500).json({
+      error: 'Trending failed'
+    });
   }
 });
 
@@ -377,159 +358,159 @@ function shuffleArray(arr) {
 //       Q3 – Generic genre pool query  ("bollywood hits 2025")
 //  4. Merge results; skip junk & near-duplicates using the global seen cache
 //  5. Shuffle so every autoplay feels fresh
-app.get('/api/related/:videoId', async (req, res) => {
-  const { videoId } = req.params;
+// app.get('/api/related/:videoId', async (req, res) => {
+//   const { videoId } = req.params;
 
-  try {
-    // ── Step 1: fetch current song metadata ──────────────────────
-    const { data: vData } = await ytGet(`${YT_BASE}/videos`, { part: 'snippet', id: videoId });
+//   try {
+//     // ── Step 1: fetch current song metadata ──────────────────────
+//     const { data: vData } = await ytGet(`${YT_BASE}/videos`, { part: 'snippet', id: videoId });
 
-    const snippet = vData.items?.[0]?.snippet;
-    if (!snippet) throw new Error('Video not found');
+//     const snippet = vData.items?.[0]?.snippet;
+//     if (!snippet) throw new Error('Video not found');
 
-    const rawTitle = snippet.title;
-    const channel = snippet.channelTitle;
+//     const rawTitle = snippet.title;
+//     const channel = snippet.channelTitle;
 
-    // ── Step 2: clean + analyse ───────────────────────────────────
-    const cleanTitle = extractCoreSongTitle(rawTitle);
-    const lang = detectLanguage(`${rawTitle} ${channel}`);
-    const keywords = extractKeywords(cleanTitle);  // e.g. ['tum', 'ho']
+//     // ── Step 2: clean + analyse ───────────────────────────────────
+//     const cleanTitle = extractCoreSongTitle(rawTitle);
+//     const lang = detectLanguage(`${rawTitle} ${channel}`);
+//     const keywords = extractKeywords(cleanTitle);  // e.g. ['tum', 'ho']
 
-    // Clean artist name — strip record label noise
-    const artistKw = channel
-      .replace(/\s*(official|music|records|entertainment|vevo|films?|studios?|productions?|india)\s*/gi, '')
-      .trim()
-      .split(/\s+/)
-      .slice(0, 2)
-      .join(' ');
+//     // Clean artist name — strip record label noise
+//     const artistKw = channel
+//       .replace(/\s*(official|music|records|entertainment|vevo|films?|studios?|productions?|india)\s*/gi, '')
+//       .trim()
+//       .split(/\s+/)
+//       .slice(0, 2)
+//       .join(' ');
 
-    // Genre label used in queries (human-readable)
-    const genreLabel = {
-      marathi: 'marathi', punjabi: 'punjabi', bollywood: 'bollywood hindi',
-      tamil: 'tamil', telugu: 'telugu', kannada: 'kannada', malayalam: 'malayalam',
-      kpop: 'kpop', lofi: 'lofi chill', hiphop: 'hip hop', rock: 'rock',
-      rnb: 'rnb', electronic: 'edm electronic', pop: 'pop',
-    }[lang] || 'pop';
+//     // Genre label used in queries (human-readable)
+//     const genreLabel = {
+//       marathi: 'marathi', punjabi: 'punjabi', bollywood: 'bollywood hindi',
+//       tamil: 'tamil', telugu: 'telugu', kannada: 'kannada', malayalam: 'malayalam',
+//       kpop: 'kpop', lofi: 'lofi chill', hiphop: 'hip hop', rock: 'rock',
+//       rnb: 'rnb', electronic: 'edm electronic', pop: 'pop',
+//     }[lang] || 'pop';
 
-    // ── Step 3: detect mood + assemble 3 vibe-matched queries ──────
-    const mood = detectMood(`${rawTitle} ${channel}`);
-    const queries = [];
+//     // ── Step 3: detect mood + assemble 3 vibe-matched queries ──────
+//     const mood = detectMood(`${rawTitle} ${channel}`);
+//     const queries = [];
 
-    // Q1 – artist + mood (most relevant: same artist, same vibe)
-    if (artistKw.length > 2) {
-      const q1 = mood
-        ? `${artistKw} ${mood} songs`
-        : `${artistKw} songs official audio`;
-      queries.push(q1);
-    }
+//     // Q1 – artist + mood (most relevant: same artist, same vibe)
+//     if (artistKw.length > 2) {
+//       const q1 = mood
+//         ? `${artistKw} ${mood} songs`
+//         : `${artistKw} songs official audio`;
+//       queries.push(q1);
+//     }
 
-    // Q2 – language/genre + mood (keeps the language AND vibe)
-    if (mood) {
-      queries.push(`${genreLabel} ${mood} songs`);
-    } else if (keywords.length) {
-      queries.push(`${keywords.join(' ')} ${genreLabel} songs`);
-    } else {
-      queries.push(`${genreLabel} songs 2025`);
-    }
+//     // Q2 – language/genre + mood (keeps the language AND vibe)
+//     if (mood) {
+//       queries.push(`${genreLabel} ${mood} songs`);
+//     } else if (keywords.length) {
+//       queries.push(`${keywords.join(' ')} ${genreLabel} songs`);
+//     } else {
+//       queries.push(`${genreLabel} songs 2025`);
+//     }
 
-    // Q3 – use actual song title as context when no mood, else genre+mood
-    const poolQueries = GENRE_QUERIES[lang] || GENRE_QUERIES.pop;
-    const basePool = poolQueries[Math.floor(Math.random() * poolQueries.length)];
-    if (mood) {
-      queries.push(`${basePool} ${mood}`);
-    } else if (cleanTitle.length > 3) {
-      // Best fallback: "songs like [current song title]" — YouTube understands this well
-      queries.push(`songs like ${cleanTitle} ${genreLabel}`);
-    } else {
-      queries.push(basePool);
-    }
+//     // Q3 – use actual song title as context when no mood, else genre+mood
+//     const poolQueries = GENRE_QUERIES[lang] || GENRE_QUERIES.pop;
+//     const basePool = poolQueries[Math.floor(Math.random() * poolQueries.length)];
+//     if (mood) {
+//       queries.push(`${basePool} ${mood}`);
+//     } else if (cleanTitle.length > 3) {
+//       // Best fallback: "songs like [current song title]" — YouTube understands this well
+//       queries.push(`songs like ${cleanTitle} ${genreLabel}`);
+//     } else {
+//       queries.push(basePool);
+//     }
 
-    console.log(`[Related] mood="${mood || 'none'}" lang=${lang} kw=[${keywords}] queries:`, queries);
+//     console.log(`[Related] mood="${mood || 'none'}" lang=${lang} kw=[${keywords}] queries:`, queries);
 
 
-    // ── Step 4: fetch, filter, deduplicate ───────────────────────
-    // Always exclude the currently playing song + everything seen globally
-    const localSeen = new Set([videoId, ...globalSeenIds]);
-    const seenTitles = [rawTitle];  // also exclude the current song's title
-    const allItems = [];
+//     // ── Step 4: fetch, filter, deduplicate ───────────────────────
+//     // Always exclude the currently playing song + everything seen globally
+//     const localSeen = new Set([videoId, ...globalSeenIds]);
+//     const seenTitles = [rawTitle];  // also exclude the current song's title
+//     const allItems = [];
 
-    for (const q of queries) {
-      try {
-        const { data } = await ytGet(`${YT_BASE}/search`, {
-          part: 'snippet',
-          q,
-          type: 'video',
-          videoCategoryId: '10',
-          maxResults: 15,
-          videoEmbeddable: 'true',
-          videoSyndicated: 'true',
-          videoDuration: 'medium',
-          order: 'relevance',
-        });
+//     for (const q of queries) {
+//       try {
+//         const { data } = await ytGet(`${YT_BASE}/search`, {
+//           part: 'snippet',
+//           q,
+//           type: 'video',
+//           videoCategoryId: '10',
+//           maxResults: 15,
+//           videoEmbeddable: 'true',
+//           videoSyndicated: 'true',
+//           videoDuration: 'medium',
+//           order: 'relevance',
+//         });
 
-        for (const item of (data.items || [])) {
-          const id = item.id.videoId;
-          const title = item.snippet.title;
+//         for (const item of (data.items || [])) {
+//           const id = item.id.videoId;
+//           const title = item.snippet.title;
 
-          if (localSeen.has(id)) continue; // exact duplicate
-          if (isJunkVideo(title)) continue; // remix/slowed/etc.
-          if (isNearDuplicate(title, seenTitles)) continue; // same song, diff upload
-          if (isMoodClash(title, mood)) continue; // wrong vibe
+//           if (localSeen.has(id)) continue; // exact duplicate
+//           if (isJunkVideo(title)) continue; // remix/slowed/etc.
+//           if (isNearDuplicate(title, seenTitles)) continue; // same song, diff upload
+//           if (isMoodClash(title, mood)) continue; // wrong vibe
 
-          localSeen.add(id);
-          seenTitles.push(title);
-          allItems.push({
-            id,
-            title,
-            artist: item.snippet.channelTitle,
-            thumbnail: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.default?.url,
-            publishedAt: item.snippet.publishedAt,
-          });
-        }
-      } catch (qErr) {
-        console.warn(`[Related] Query "${q}" failed:`, qErr.message);
-      }
-    }
+//           localSeen.add(id);
+//           seenTitles.push(title);
+//           allItems.push({
+//             id,
+//             title,
+//             artist: item.snippet.channelTitle,
+//             thumbnail: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.default?.url,
+//             publishedAt: item.snippet.publishedAt,
+//           });
+//         }
+//       } catch (qErr) {
+//         console.warn(`[Related] Query "${q}" failed:`, qErr.message);
+//       }
+//     }
 
-    // ── Step 5: shuffle, cap, update global cache ─────────────────
-    const items = shuffleArray(allItems).slice(0, 20);
-    items.forEach(s => addToGlobalSeen(s.id));  // remember them for next call
-    addToGlobalSeen(videoId);
+//     // ── Step 5: shuffle, cap, update global cache ─────────────────
+//     const items = shuffleArray(allItems).slice(0, 20);
+//     items.forEach(s => addToGlobalSeen(s.id));  // remember them for next call
+//     addToGlobalSeen(videoId);
 
-    console.log(`[Related] Returning ${items.length} unique tracks for lang=${lang}`);
-    res.json({ items });
+//     console.log(`[Related] Returning ${items.length} unique tracks for lang=${lang}`);
+//     res.json({ items });
 
-  } catch (err) {
-    console.error('[Related] Error:', err.response?.data || err.message);
+//   } catch (err) {
+//     console.error('[Related] Error:', err.response?.data || err.message);
 
-    // ── Hard fallback: popular music so autoplay never fully breaks ──
-    try {
-      const { data: fallback } = await ytGet(`${YT_BASE}/search`, {
-        part: 'snippet',
-        q: 'popular music hits 2025 official audio',
-        type: 'video',
-        videoCategoryId: '10',
-        order: 'viewCount',
-        maxResults: 15,
-        videoEmbeddable: 'true',
-        videoDuration: 'medium',
-      });
-      const items = fallback.items
-        .filter(item => !isJunkVideo(item.snippet.title) && !globalSeenIds.has(item.id.videoId))
-        .map(item => ({
-          id: item.id.videoId,
-          title: item.snippet.title,
-          artist: item.snippet.channelTitle,
-          thumbnail: item.snippet.thumbnails?.high?.url,
-          publishedAt: item.snippet.publishedAt,
-        }));
-      items.forEach(s => addToGlobalSeen(s.id));
-      res.json({ items });
-    } catch (e2) {
-      res.status(500).json({ error: 'Related fetch failed' });
-    }
-  }
-});
+//     // ── Hard fallback: popular music so autoplay never fully breaks ──
+//     try {
+//       const { data: fallback } = await ytGet(`${YT_BASE}/search`, {
+//         part: 'snippet',
+//         q: 'popular music hits 2025 official audio',
+//         type: 'video',
+//         videoCategoryId: '10',
+//         order: 'viewCount',
+//         maxResults: 15,
+//         videoEmbeddable: 'true',
+//         videoDuration: 'medium',
+//       });
+//       const items = fallback.items
+//         .filter(item => !isJunkVideo(item.snippet.title) && !globalSeenIds.has(item.id.videoId))
+//         .map(item => ({
+//           id: item.id.videoId,
+//           title: item.snippet.title,
+//           artist: item.snippet.channelTitle,
+//           thumbnail: item.snippet.thumbnails?.high?.url,
+//           publishedAt: item.snippet.publishedAt,
+//         }));
+//       items.forEach(s => addToGlobalSeen(s.id));
+//       res.json({ items });
+//     } catch (e2) {
+//       res.status(500).json({ error: 'Related fetch failed' });
+//     }
+//   }
+// });
 
 // ── Video details (duration, views, etc.) ─────────────────────
 app.get('/api/video/:videoId', async (req, res) => {
