@@ -575,30 +575,38 @@ app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
   }
 });
-const ytdl = require('@distube/ytdl-core');
+const { Innertube } = require('youtubei.js');
+
+let yt;
+
+(async () => {
+  yt = await Innertube.create();
+})();
 
 app.get('/api/stream/:id', async (req, res) => {
   try {
-    const info = await ytdl.getInfo(
-      `https://www.youtube.com/watch?v=${req.params.id}`
+    const id = req.params.id;
+
+    const info = await yt.getInfo(id);
+
+    const format = info.streaming_data.adaptive_formats.find(
+      f => f.mime_type.includes('audio')
     );
 
-    const format = ytdl.chooseFormat(info.formats, {
-      quality: 'highestaudio',
-      filter: 'audioonly',
-    });
+    if (!format) {
+      return res.status(404).json({
+        error: 'No audio stream found'
+      });
+    }
 
-    res.setHeader('Content-Type', format.mimeType);
-    res.setHeader('Accept-Ranges', 'bytes');
-
-    ytdl.downloadFromInfo(info, {
-      format,
-      highWaterMark: 1 << 25,
-    }).pipe(res);
+    res.redirect(format.url);
 
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Streaming failed' });
+
+    res.status(500).json({
+      error: 'Streaming failed'
+    });
   }
 });
 
