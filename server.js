@@ -17,7 +17,9 @@ const YT_BASE = 'https://www.googleapis.com/youtube/v3';
 //  Each key gives 10,000 units/day → 3 keys = 30,000 units/day.
 // ═══════════════════════════════════════════════════════════════
 const API_KEYS = [
-  process.env.YT_API_KEY_1 || 'AIzaSyCu0tTmZHX04S8HUgZ8gC4ge8TczGrlzXA', 'AIzaSyDuyJnnVDDvGmf5n7p__pL_0KSusJekFVA', 'AIzaSyBI7mWKsexj_I2mhlxgJEM0-ROCVHmAtGA'
+  process.env.YT_API_KEY_1 || 'AIzaSyCu0tTmZHX04S8HUgZ8gC4ge8TczGrlzXA', 
+  process.env.YT_API_KEY_2||'AIzaSyDuyJnnVDDvGmf5n7p__pL_0KSusJekFVA', 
+  process.env.YT_API_KEY_3||'AIzaSyBI7mWKsexj_I2mhlxgJEM0-ROCVHmAtGA'
   // Add more keys below (create free projects at console.cloud.google.com):
   // 'AIzaSy_YOUR_SECOND_KEY_HERE',
   // 'AIzaSy_YOUR_THIRD_KEY_HERE',
