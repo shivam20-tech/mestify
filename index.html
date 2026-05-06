@@ -776,10 +776,20 @@ audio.addEventListener('ended', () => {
   else playNext();
 });
 
-audio.addEventListener('error', (e) => {
-  console.error('Audio error:', e);
-  toast('Playback error, skipping...');
-  setTimeout(() => playNext(), 1000);
+audio.addEventListener('error', async () => {
+  const song = queue[queueIdx];
+
+  if (!song) return;
+
+  toast('Reconnecting stream...');
+
+  audio.src = `${BACKEND_URL}/api/stream/${song.id}?t=${Date.now()}`;
+
+  try {
+    await audio.play();
+  } catch {
+    playNext();
+  }
 });
 
 audio.addEventListener('loadedmetadata', () => {
@@ -790,10 +800,15 @@ audio.addEventListener('loadedmetadata', () => {
 // Wrapper to make audio compatible with old YT player calls
 // Wrapper to make audio compatible with old YT player calls
 ytPlayer = {
-  loadVideoById: (id) => {
-    audio.src = `${BACKEND_URL}/api/stream/${id}`;
-    audio.load();
-  },
+ loadVideoById: async (id) => {
+  audio.src = `${BACKEND_URL}/api/stream/${id}?t=${Date.now()}`;
+
+  try {
+    await audio.play();
+  } catch (err) {
+    console.error(err);
+  }
+},
   playVideo: () => {
     const playPromise = audio.play();
     if (playPromise !== undefined) {

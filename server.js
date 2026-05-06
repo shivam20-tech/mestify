@@ -578,19 +578,26 @@ const ytdl = require('@distube/ytdl-core');
 
 app.get('/api/stream/:id', async (req, res) => {
   try {
-    const url = `https://www.youtube.com/watch?v=${req.params.id}`;
+    const info = await ytdl.getInfo(
+      `https://www.youtube.com/watch?v=${req.params.id}`
+    );
 
-    res.header('Content-Type', 'audio/mp4');
-
-    ytdl(url, {
-      filter: 'audioonly',
+    const format = ytdl.chooseFormat(info.formats, {
       quality: 'highestaudio',
+      filter: 'audioonly',
+    });
+
+    res.setHeader('Content-Type', format.mimeType);
+    res.setHeader('Accept-Ranges', 'bytes');
+
+    ytdl.downloadFromInfo(info, {
+      format,
       highWaterMark: 1 << 25,
     }).pipe(res);
 
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Stream failed' });
+    res.status(500).json({ error: 'Streaming failed' });
   }
 });
 
