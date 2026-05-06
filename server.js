@@ -573,10 +573,6 @@ app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
   }
 });
-
-app.listen(PORT, () =>
-  console.log(`🎵 Mestify backend running → http://localhost:${PORT}`)
-);
 const ytdl = require('@distube/ytdl-core');
 
 // ── Stream audio (for iOS background playback) ──────────────
@@ -629,3 +625,7 @@ function parseRange(rangeHeader) {
     end: match[2] ? parseInt(match[2]) : undefined,
   };
 }
+
+app.listen(PORT, () =>
+  console.log(`🎵 Mestify backend running → http://localhost:${PORT}`)
+);
