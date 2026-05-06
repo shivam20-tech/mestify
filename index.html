@@ -750,45 +750,14 @@ const isMobile = () => window.innerWidth <= 768;
 // ─── YT API ─────────────────────────────────────────────────────
 window.onYouTubeIframeAPIReady = () => {
   ytPlayer = new YT.Player('ytPlayer', {
-    height: '1',
-    width: '1',
-    host: 'https://www.youtube.com',
-    playerVars: {
-      autoplay: 0,
-      controls: 0,
-      playsinline: 1,
-      enablejsapi: 1,
-      origin: window.location.origin,
-      rel: 0,
-      modestbranding: 1
-    },
+    height: '1', width: '1',
+    playerVars: { autoplay: 0, controls: 0 },
     events: {
-      onReady: () => {
-        ytReady = true;
-        ytPlayer.setVolume(volume);
-
-        // Make media session state match current player state
-        if ('mediaSession' in navigator) {
-          navigator.mediaSession.playbackState = 'none';
-        }
-
-        // Better resume chance after tab switch on mobile/desktop
-        document.addEventListener('visibilitychange', () => {
-          if (!ytPlayer || !ytReady) return;
-
-          // Do NOT pause on hidden. Let audio continue.
-          // When visible again, refresh Media Session state.
-          if (!document.hidden && 'mediaSession' in navigator) {
-            navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
-          }
-        });
-      },
+      onReady: () => { ytReady = true; ytPlayer.setVolume(volume); },
       onStateChange: onPlayerState,
     },
   });
 };
-
-
 
 function onPlayerState(e) {
   if (e.data === YT.PlayerState.PLAYING) {
@@ -1009,108 +978,6 @@ function playFromQueue(idx) {
 }
 
 function updateNowPlaying(song) {
-  if (!song) return;
-
-  const safeThumb = song.thumbnail || FALLBACK_IMG;
-  const isLiked = !!liked[song.id];
-
-  // Desktop player
-  document.getElementById('npThumb').src = safeThumb;
-  document.getElementById('npThumb').classList.add('pulse');
-  document.getElementById('npTitle').textContent = song.title || 'Unknown title';
-  document.getElementById('npArtist').textContent = song.artist || 'Unknown artist';
-  document.getElementById('npLike').innerHTML = isLiked
-    ? '<i class="fa-solid fa-heart"></i>'
-    : '<i class="fa-regular fa-heart"></i>';
-  document.getElementById('npLike').classList.toggle('liked', isLiked);
-
-  // Mobile mini player
-  document.getElementById('mobThumb').src = safeThumb;
-  document.getElementById('mobTitle').textContent = song.title || 'Unknown title';
-  document.getElementById('mobArtist').textContent = song.artist || 'Unknown artist';
-  document.getElementById('mobLikeBtn').innerHTML = isLiked
-    ? '<i class="fa-solid fa-heart"></i>'
-    : '<i class="fa-regular fa-heart"></i>';
-  document.getElementById('mobLikeBtn').classList.toggle('liked', isLiked);
-
-  // Expanded player
-  document.getElementById('expThumb').src = safeThumb;
-  document.getElementById('expTitle').textContent = song.title || 'Unknown title';
-  document.getElementById('expArtist').textContent = song.artist || 'Unknown artist';
-  document.getElementById('expLike').innerHTML = isLiked
-    ? '<i class="fa-solid fa-heart"></i><span>Liked</span>'
-    : '<i class="fa-regular fa-heart"></i><span>Like</span>';
-  document.getElementById('expLike').classList.toggle('active', isLiked);
-
-  document.title = `${song.title} – Mestify`;
-
-  // Media Session API
-  if ('mediaSession' in navigator) {
-    try {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: song.title || 'Unknown title',
-        artist: song.artist || 'Unknown artist',
-        album: 'Mestify',
-        artwork: [
-          { src: safeThumb, sizes: '96x96', type: 'image/jpeg' },
-          { src: safeThumb, sizes: '128x128', type: 'image/jpeg' },
-          { src: safeThumb, sizes: '192x192', type: 'image/jpeg' },
-          { src: safeThumb, sizes: '256x256', type: 'image/jpeg' },
-          { src: safeThumb, sizes: '384x384', type: 'image/jpeg' },
-          { src: safeThumb, sizes: '512x512', type: 'image/jpeg' }
-        ]
-      });
-
-      navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
-
-      navigator.mediaSession.setActionHandler('play', () => {
-        if (!ytPlayer || !ytReady) return;
-        ytPlayer.playVideo();
-      });
-
-      navigator.mediaSession.setActionHandler('pause', () => {
-        if (!ytPlayer || !ytReady) return;
-        ytPlayer.pauseVideo();
-      });
-
-      navigator.mediaSession.setActionHandler('previoustrack', () => {
-        playPrev();
-      });
-
-      navigator.mediaSession.setActionHandler('nexttrack', () => {
-        playNext();
-      });
-
-      navigator.mediaSession.setActionHandler('seekbackward', (details) => {
-        if (!ytPlayer || !ytReady) return;
-        const current = ytPlayer.getCurrentTime?.() || 0;
-        const step = details.seekOffset || 10;
-        ytPlayer.seekTo(Math.max(0, current - step), true);
-      });
-
-      navigator.mediaSession.setActionHandler('seekforward', (details) => {
-        if (!ytPlayer || !ytReady) return;
-        const current = ytPlayer.getCurrentTime?.() || 0;
-        const duration = ytPlayer.getDuration?.() || 0;
-        const step = details.seekOffset || 10;
-        ytPlayer.seekTo(Math.min(duration, current + step), true);
-      });
-
-      navigator.mediaSession.setActionHandler('seekto', (details) => {
-        if (!ytPlayer || !ytReady) return;
-        if (details.seekTime != null) {
-          ytPlayer.seekTo(details.seekTime, true);
-        }
-      });
-
-      // Optional: clear unsupported actions safely
-      try { navigator.mediaSession.setActionHandler('stop', null); } catch (_) {}
-    } catch (err) {
-      console.warn('Media Session setup failed:', err);
-    }
-  }
-}
-
   // Desktop player
   document.getElementById('npThumb').src = song.thumbnail || '';
   document.getElementById('npThumb').classList.add('pulse');
