@@ -750,27 +750,76 @@ const isMobile = () => window.innerWidth <= 768;
 // ─── YT API ─────────────────────────────────────────────────────
 window.onYouTubeIframeAPIReady = () => {
   ytPlayer = new YT.Player('ytPlayer', {
-    height: '1', width: '1',
-    playerVars: { autoplay: 0, controls: 0 },
+    height: '1',
+    width: '1',
+    host: 'https://www.youtube.com',
+    playerVars: {
+      autoplay: 0,
+      controls: 0,
+      playsinline: 1,
+      enablejsapi: 1,
+      origin: window.location.origin,
+      rel: 0,
+      modestbranding: 1,
+      iv_load_policy: 3
+    },
     events: {
-      onReady: () => { ytReady = true; ytPlayer.setVolume(volume); },
+      onReady: () => {
+        ytReady = true;
+        ytPlayer.setVolume(volume);
+
+        installBackgroundPlaybackSupport();
+        installMediaSessionHandlers();
+        syncMediaSessionPlaybackState();
+      },
       onStateChange: onPlayerState,
     },
   });
 };
 
+
 function onPlayerState(e) {
   if (e.data === YT.PlayerState.PLAYING) {
-    isPlaying = true; updatePlayBtn(); startProgress();
+    isPlaying = true;
+    updatePlayBtn();
+    startProgress();
+    syncMediaSessionPlaybackState();
+    syncMediaSessionPosition();
+
   } else if (e.data === YT.PlayerState.PAUSED) {
-    isPlaying = false; updatePlayBtn(); stopProgress();
+    isPlaying = false;
+    updatePlayBtn();
+    stopProgress();
+    syncMediaSessionPlaybackState();
+    syncMediaSessionPosition();
+
   } else if (e.data === YT.PlayerState.ENDED) {
-    isPlaying = false; updatePlayBtn(); stopProgress();
-    if (isRepeat) { ytPlayer.seekTo(0); ytPlayer.playVideo(); }
-    else if (isRadio) loadRadio(queue[queueIdx]?.id);
-    else playNext();
+    isPlaying = false;
+    updatePlayBtn();
+    stopProgress();
+    syncMediaSessionPlaybackState();
+
+    try {
+      if ('mediaSession' in navigator && navigator.mediaSession.setPositionState) {
+        navigator.mediaSession.setPositionState({
+          duration: ytPlayer?.getDuration?.() || 0,
+          playbackRate: 1,
+          position: ytPlayer?.getDuration?.() || 0,
+        });
+      }
+    } catch (_) {}
+
+    if (isRepeat) {
+      ytPlayer.seekTo(0, true);
+      ytPlayer.playVideo();
+    } else if (isRadio) {
+      loadRadio(queue[queueIdx]?.id);
+    } else {
+      playNext();
+    }
   }
 }
+
 
 // ─── API ─────────────────────────────────────────────────────────
 async function apiFetch(path) {
@@ -976,8 +1025,182 @@ function playFromQueue(idx) {
   updateQueuePanel();
   refreshCards();
 }
+function syncMediaSessionPlaybackState() {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+  } catch (_) {}
+}
+
+function syncMediaSessionPosition() {
+  if (!ytPlayer || !ytReady) return;
+  if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+
+  try {
+    const duration = ytPlayer.getDuration?.() || 0;
+    const position = ytPlayer.getCurrentTime?.() || 0;
+
+    if (!duration || !Number.isFinite(duration) || !Number.isFinite(position)) return;
+
+    navigator.mediaSession.setPositionState({
+      duration,
+      playbackRate: 1,
+      position: Math.min(position, duration),
+    });
+  } catch (_) {}
+}
+
+function safeSetMediaAction(action, handler) {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.setActionHandler(action, handler);
+  } catch (_) {}
+}
+
+function installMediaSessionHandlers() {
+  safeSetMediaAction('play', () => {
+    if (!ytPlayer || !ytReady) return;
+    ytPlayer.playVideo();
+  });
+
+  safeSetMediaAction('pause', () => {
+    if (!ytPlayer || !ytReady) return;
+    ytPlayer.pauseVideo();
+  });
+
+  safeSetMediaAction('previoustrack', () => {
+    playPrev();
+  });
+
+  safeSetMediaAction('nexttrack', () => {
+    playNext();
+  });
+
+  safeSetMediaAction('seekbackward', (details) => {
+    if (!ytPlayer || !ytReady) return;
+    const current = ytPlayer.getCurrentTime?.() || 0;
+    const offset = details?.seekOffset || 10;
+    ytPlayer.seekTo(Math.max(0, current - offset), true);
+    syncMediaSessionPosition();
+  });
+
+  safeSetMediaAction('seekforward', (details) => {
+    if (!ytPlayer || !ytReady) return;
+    const current = ytPlayer.getCurrentTime?.() || 0;
+    const duration = ytPlayer.getDuration?.() || 0;
+    const offset = details?.seekOffset || 10;
+    ytPlayer.seekTo(Math.min(duration, current + offset), true);
+    syncMediaSessionPosition();
+  });
+
+  safeSetMediaAction('seekto', (details) => {
+    if (!ytPlayer || !ytReady) return;
+    if (details.seekTime == null) return;
+    ytPlayer.seekTo(details.seekTime, true);
+    syncMediaSessionPosition();
+  });
+}
+
+function installBackgroundPlaybackSupport() {
+  // Important: do NOT pause just because tab becomes hidden.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      syncMediaSessionPlaybackState();
+      return;
+    }
+
+    // When tab becomes visible again, re-sync UI and metadata
+    syncMediaSessionPlaybackState();
+    syncMediaSessionPosition();
+
+    const currentSong = queue[queueIdx];
+    if (currentSong) updateNowPlaying(currentSong);
+  });
+
+  window.addEventListener('focus', () => {
+    syncMediaSessionPlaybackState();
+    syncMediaSessionPosition();
+  });
+
+  window.addEventListener('pageshow', () => {
+    syncMediaSessionPlaybackState();
+    syncMediaSessionPosition();
+  });
+
+  // Optional: remember that user interacted once
+  const markUserInteraction = () => {
+    window.__mestifyUserActivated = true;
+  };
+
+  ['pointerdown', 'touchstart', 'keydown'].forEach(evt => {
+    window.addEventListener(evt, markUserInteraction, { passive: true, once: true });
+  });
+}
+
 
 function updateNowPlaying(song) {
+  if (!song) return;
+
+  const safeThumb = song.thumbnail || FALLBACK_IMG;
+  const isLiked = !!liked[song.id];
+
+  // Desktop player
+  document.getElementById('npThumb').src = safeThumb;
+  document.getElementById('npThumb').classList.add('pulse');
+  document.getElementById('npTitle').textContent = song.title || 'Unknown title';
+  document.getElementById('npArtist').textContent = song.artist || 'Unknown artist';
+  document.getElementById('npLike').innerHTML = isLiked
+    ? '<i class="fa-solid fa-heart"></i>'
+    : '<i class="fa-regular fa-heart"></i>';
+  document.getElementById('npLike').classList.toggle('liked', isLiked);
+
+  // Mobile mini player
+  document.getElementById('mobThumb').src = safeThumb;
+  document.getElementById('mobTitle').textContent = song.title || 'Unknown title';
+  document.getElementById('mobArtist').textContent = song.artist || 'Unknown artist';
+  document.getElementById('mobLikeBtn').innerHTML = isLiked
+    ? '<i class="fa-solid fa-heart"></i>'
+    : '<i class="fa-regular fa-heart"></i>';
+  document.getElementById('mobLikeBtn').classList.toggle('liked', isLiked);
+
+  // Expanded player
+  document.getElementById('expThumb').src = safeThumb;
+  document.getElementById('expTitle').textContent = song.title || 'Unknown title';
+  document.getElementById('expArtist').textContent = song.artist || 'Unknown artist';
+  document.getElementById('expLike').innerHTML = isLiked
+    ? '<i class="fa-solid fa-heart"></i><span>Liked</span>'
+    : '<i class="fa-regular fa-heart"></i><span>Like</span>';
+  document.getElementById('expLike').classList.toggle('active', isLiked);
+
+  document.title = `${song.title || 'Now Playing'} – Mestify`;
+
+  // Media Session metadata for lock screen / notification controls
+  if ('mediaSession' in navigator) {
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: song.title || 'Unknown title',
+        artist: song.artist || 'Unknown artist',
+        album: 'Mestify',
+        artwork: [
+          { src: safeThumb, sizes: '96x96' },
+          { src: safeThumb, sizes: '128x128' },
+          { src: safeThumb, sizes: '192x192' },
+          { src: safeThumb, sizes: '256x256' },
+          { src: safeThumb, sizes: '384x384' },
+          { src: safeThumb, sizes: '512x512' }
+        ]
+      });
+
+      syncMediaSessionPlaybackState();
+      syncMediaSessionPosition();
+      installMediaSessionHandlers();
+
+    } catch (err) {
+      console.warn('Media Session metadata setup failed:', err);
+    }
+  }
+}
+
   // Desktop player
   document.getElementById('npThumb').src = song.thumbnail || '';
   document.getElementById('npThumb').classList.add('pulse');
@@ -1120,6 +1343,33 @@ async function loadRadio(videoId) {
 
 // ─── Progress ───────────────────────────────────────────────────
 function startProgress() {
+  clearInterval(progressInterval);
+
+  progressInterval = setInterval(() => {
+    if (!ytPlayer || !ytReady) return;
+
+    const cur = ytPlayer.getCurrentTime?.() || 0;
+    const dur = ytPlayer.getDuration?.() || 0;
+    if (!dur) return;
+
+    const pct = (cur / dur) * 100;
+
+    // Desktop progress
+    document.getElementById('progressFill').style.width = pct + '%';
+    document.getElementById('progressThumb').style.left = pct + '%';
+    document.getElementById('curTime').textContent = fmtTime(cur);
+    document.getElementById('durTime').textContent = fmtTime(dur);
+
+    // Expanded progress
+    document.getElementById('expFill').style.width = pct + '%';
+    document.getElementById('expCur').textContent = fmtTime(cur);
+    document.getElementById('expDur').textContent = fmtTime(dur);
+
+    // Keep lock screen / media notification position updated
+    syncMediaSessionPosition();
+  }, 500);
+}
+
   clearInterval(progressInterval);
   progressInterval = setInterval(() => {
     if (!ytPlayer || !ytReady) return;
