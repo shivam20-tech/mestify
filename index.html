@@ -1253,7 +1253,7 @@ function updateNowPlaying(song) {
       ytPlayer?.seekTo(t);
     });
   }
-}
+
 
 function updatePlayBtn() {
   const icon = isPlaying ? 'fa-pause' : 'fa-play';
@@ -1398,7 +1398,7 @@ function startProgress() {
       } catch(_) {}
     }
   }, 500);
-}
+
 function stopProgress() { clearInterval(progressInterval); }
 function fmtTime(s) { const m=Math.floor(s/60); return `${m}:${Math.floor(s%60).toString().padStart(2,'0')}`; }
 
