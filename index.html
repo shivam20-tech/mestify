@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
-<script src="https://www.youtube.com/iframe_api"></script>
+
 
 <style>
 /* ────────── DESIGN TOKENS ────────── */
@@ -724,7 +724,7 @@ nav { padding: 8px 12px; }
 </div>
 
 <!-- Hidden YT player -->
-<div id="ytPlayer"></div>
+<audio id="audioPlayer" preload="metadata" crossorigin="anonymous"></audio>
 <div id="toast"></div>
 
 <script>
@@ -748,29 +748,67 @@ let sleepTimer = null, sleepEndsAt = null;
 const isMobile = () => window.innerWidth <= 768;
 
 // ─── YT API ─────────────────────────────────────────────────────
-window.onYouTubeIframeAPIReady = () => {
-  ytPlayer = new YT.Player('ytPlayer', {
-    height: '1', width: '1',
-    playerVars: { autoplay: 0, controls: 0 },
-    events: {
-      onReady: () => { ytReady = true; ytPlayer.setVolume(volume); },
-      onStateChange: onPlayerState,
-    },
-  });
+// ═══════════════════════════════════════════════════════════════
+//  AUDIO PLAYER (works on iOS background + lock screen!)
+// ═══════════════════════════════════════════════════════════════
+const audio = document.getElementById('audioPlayer');
+audio.volume = volume / 100;
+ytReady = true; // for compatibility with rest of code
+
+audio.addEventListener('play', () => {
+  isPlaying = true;
+  updatePlayBtn();
+  startProgress();
+});
+
+audio.addEventListener('pause', () => {
+  isPlaying = false;
+  updatePlayBtn();
+  stopProgress();
+});
+
+audio.addEventListener('ended', () => {
+  isPlaying = false;
+  updatePlayBtn();
+  stopProgress();
+  if (isRepeat) { audio.currentTime = 0; audio.play(); }
+  else if (isRadio) loadRadio(queue[queueIdx]?.id);
+  else playNext();
+});
+
+audio.addEventListener('error', (e) => {
+  console.error('Audio error:', e);
+  toast('Playback error, skipping...');
+  setTimeout(() => playNext(), 1000);
+});
+
+audio.addEventListener('loadedmetadata', () => {
+  document.getElementById('durTime').textContent = fmtTime(audio.duration);
+  document.getElementById('expDur').textContent = fmtTime(audio.duration);
+});
+
+// Wrapper to make audio compatible with old YT player calls
+const ytPlayer = {
+  loadVideoById: (id) => {
+    audio.src = `${BACKEND_URL}/api/stream/${id}`;
+    audio.load();
+  },
+  playVideo: () => audio.play().catch(err => {
+    console.error('Play failed:', err);
+    toast('Tap play to start music');
+  }),
+  pauseVideo: () => audio.pause(),
+  seekTo: (sec) => { audio.currentTime = sec; },
+  setVolume: (v) => { audio.volume = v / 100; },
+  mute: () => { audio.muted = true; },
+  unMute: () => { audio.muted = false; },
+  getCurrentTime: () => audio.currentTime || 0,
+  getDuration: () => audio.duration || 0,
+  getPlayerState: () => audio.paused ? 2 : 1,
 };
 
-function onPlayerState(e) {
-  if (e.data === YT.PlayerState.PLAYING) {
-    isPlaying = true; updatePlayBtn(); startProgress();
-  } else if (e.data === YT.PlayerState.PAUSED) {
-    isPlaying = false; updatePlayBtn(); stopProgress();
-  } else if (e.data === YT.PlayerState.ENDED) {
-    isPlaying = false; updatePlayBtn(); stopProgress();
-    if (isRepeat) { ytPlayer.seekTo(0); ytPlayer.playVideo(); }
-    else if (isRadio) loadRadio(queue[queueIdx]?.id);
-    else playNext();
-  }
-}
+// Stub for YT compatibility
+window.YT = { PlayerState: { PLAYING: 1, PAUSED: 2, ENDED: 0, BUFFERING: 3 } };
 
 // ─── API ─────────────────────────────────────────────────────────
 async function apiFetch(path) {
@@ -1122,24 +1160,20 @@ async function loadRadio(videoId) {
 function startProgress() {
   clearInterval(progressInterval);
   progressInterval = setInterval(() => {
-    if (!ytPlayer || !ytReady) return;
-    const cur = ytPlayer.getCurrentTime?.() || 0;
-    const dur = ytPlayer.getDuration?.() || 0;
+    const cur = audio.currentTime || 0;
+    const dur = audio.duration || 0;
     if (!dur) return;
     const pct = (cur / dur) * 100;
 
-    // Desktop progress
     document.getElementById('progressFill').style.width = pct + '%';
     document.getElementById('progressThumb').style.left = pct + '%';
     document.getElementById('curTime').textContent = fmtTime(cur);
     document.getElementById('durTime').textContent = fmtTime(dur);
 
-    // Expanded progress
     document.getElementById('expFill').style.width = pct + '%';
     document.getElementById('expCur').textContent = fmtTime(cur);
     document.getElementById('expDur').textContent = fmtTime(dur);
 
-    // Update Media Session position
     if ('mediaSession' in navigator && navigator.mediaSession.setPositionState) {
       try {
         navigator.mediaSession.setPositionState({
