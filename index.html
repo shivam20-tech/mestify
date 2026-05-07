@@ -7,6 +7,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <title>Mestify – Music for Everyone</title>
+<link rel="manifest" href="/manifest.json" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
@@ -731,8 +734,12 @@ nav { padding: 8px 12px; }
 // ═══════════════════════════════════════════════════════════════
 //  CONFIG
 // ═══════════════════════════════════════════════════════════════
-const BACKEND_URL = 'https://mestify-production.up.railway.app';
+// Auto-detect: use local backend when running locally, else use Railway
+const BACKEND_URL = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+      ? `http://localhost:5000`
+      // : 'https://mestify.onrender.com';
 
+      : 'https://mestify-production.up.railway.app';
 // ═══════════════════════════════════════════════════════════════
 //  STATE
 // ═══════════════════════════════════════════════════════════════
@@ -797,7 +804,6 @@ audio.addEventListener('loadedmetadata', () => {
   document.getElementById('expDur').textContent = fmtTime(audio.duration);
 });
 
-// Wrapper to make audio compatible with old YT player calls
 // Wrapper to make audio compatible with old YT player calls
 ytPlayer = {
  loadVideoById: async (id) => {
@@ -1030,8 +1036,8 @@ function playFromQueue(idx) {
   queueIdx = idx;
   const song = queue[idx];
   if (!song) return;
+  // loadVideoById already calls audio.play() internally
   ytPlayer.loadVideoById(song.id);
-  ytPlayer.playVideo();
   isPlaying = true;
   updateNowPlaying(song);
   updatePlayBtn();
@@ -1126,7 +1132,11 @@ function playNext() {
 async function loadAutoplay(videoId) {
   toast('Fetching autoplay… 🎵');
   try {
-    const data = await apiFetch(`/api/related/${videoId}`);
+    const song = queue[queueIdx];
+    const params = song
+      ? `?title=${encodeURIComponent(song.title)}&artist=${encodeURIComponent(song.artist)}`
+      : '';
+    const data = await apiFetch(`/api/related/${videoId}${params}`);
     if (data.items && data.items.length) {
       const startIdx = queue.length;
       queue = [...queue, ...data.items];
@@ -1134,7 +1144,7 @@ async function loadAutoplay(videoId) {
       updateQueuePanel();
       toast('Autoplay: similar songs added ∞');
     } else toast('Nothing more to autoplay');
-  } catch(e) { toast('Autoplay failed'); }
+  } catch(e) { console.error('[autoplay]', e); toast('Autoplay failed'); }
 }
 
 function playSongFromBrowse(idx) {
@@ -1172,12 +1182,16 @@ function playPrev() {
 async function loadRadio(videoId) {
   try {
     toast('Loading radio…');
-    const data = await apiFetch(`/api/related/${videoId}`);
-    if (data.items.length) {
+    const song = queue[queueIdx];
+    const params = song
+      ? `?title=${encodeURIComponent(song.title)}&artist=${encodeURIComponent(song.artist)}`
+      : '';
+    const data = await apiFetch(`/api/related/${videoId}${params}`);
+    if (data.items && data.items.length) {
       queue = data.items; queueIdx = 0;
       playFromQueue(0); updateQueuePanel(); toast('Radio started 📻');
-    }
-  } catch(e) { toast('Radio failed'); }
+    } else toast('No radio stations found');
+  } catch(e) { console.error('[radio]', e); toast('Radio failed'); }
 }
 
 // ─── Progress ───────────────────────────────────────────────────
