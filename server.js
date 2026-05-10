@@ -354,9 +354,9 @@ function ytdlpGetUrlAndFormat(videoId) {
       '--no-playlist',
       '-f',
       'bestaudio/best',
+      '--print',
+      '%(url)s\n%(ext)s\n%(protocol)s\n%(duration)s',
       '--no-warnings',
-      '-o',
-      '-',
       url,
     ];
     const proc = spawn(YTDLP_PATH, args);
