@@ -357,7 +357,7 @@ function ytdlpGetUrlAndFormat(videoId) {
       '--no-warnings',
       '-o',
       '-',
-      Url,
+      url,
     ];
     const proc = spawn(YTDLP_PATH, args);
     // FIX #6: Manual 20s kill timer since spawn() ignores timeout option
