@@ -644,51 +644,24 @@ app.get('/api/prefetch/:id', async (req, res) => {
   _downloading.add(id);
 
   try {
-    const { url: audioUrl, isHLS } = await getCachedUrlInfo(id);
-    if (!isHLS && audioUrl) {
-      const upstream = await axios({
-        method: 'GET',
-        url: audioUrl,
-        responseType: 'stream',
-        headers: {
-          'User-Agent': 'Mozilla/5.0',
-          'Origin': 'https://www.youtube.com',
-          'Referer': 'https://www.youtube.com/',
-        },
-        timeout: 90000,
-      });
-      const tmpPath = cacheFile + '.tmp';
-      const tmp = fs.createWriteStream(tmpPath);
-      upstream.data.pipe(tmp);
-      tmp.on('finish', () => {
-        try { fs.renameSync(tmpPath, cacheFile); console.log(`[prefetch:saved] ${id}`); }
-        catch (_) { try { fs.unlinkSync(tmpPath); } catch (_) { } }
-        _downloading.delete(id);
-      });
-      tmp.on('error', () => {
-        _downloading.delete(id);
-        try { fs.unlinkSync(tmpPath); } catch (_) { }
-      });
-    } else {
-      _downloading.delete(id);
-    }
+    await getCachedUrlInfo(id);
+    console.log(`[prefetch] warmed ${id}`);
   } catch (e) {
-    // FIX #2: Ensure _downloading is always cleaned up on any error path
-    _downloading.delete(id);
     console.warn(`[prefetch] failed for ${id}:`, e.message);
+  } finally {
+    _downloading.delete(id);
   }
-});
 
-// ── Health check ───────────────────────────────────────────────────
-app.get('/health', (_req, res) =>
-  res.json({ status: 'ok', ytmusicReady, time: new Date() })
-);
+  // ── Health check ───────────────────────────────────────────────────
+  app.get('/health', (_req, res) =>
+    res.json({ status: 'ok', ytmusicReady, time: new Date() })
+  );
 
-// ── Catch-all: serve index.html ────────────────────────────────────
-app.get('*', (req, res) => {
-  if (!req.path.startsWith('/api')) res.sendFile(path.join(__dirname, 'index.html'));
-});
+  // ── Catch-all: serve index.html ────────────────────────────────────
+  app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api')) res.sendFile(path.join(__dirname, 'index.html'));
+  });
 
-app.listen(PORT, () =>
-  console.log(`🎵 Mestify backend running → http://localhost:${PORT}`)
-);
+  app.listen(PORT, () =>
+    console.log(`🎵 Mestify backend running → http://localhost:${PORT}`)
+  );
