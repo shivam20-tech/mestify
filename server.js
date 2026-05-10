@@ -364,11 +364,11 @@ function ytdlpGetUrlAndFormat(videoId) {
     const killer = setTimeout(() => {
       proc.kill('SIGKILL');
       reject(new Error('yt-dlp timed out after 20s'));
-    }, 20000);
+    }, 90000);
 
     let out = '', err = '';
     proc.stdout.on('data', d => { out += d.toString(); });
-    proc.stderr.on('data', d => { err += d.toString(); });
+    proc.stderr.on('data', () => { });
     proc.on('close', code => {
       clearTimeout(killer);
       const lines = out.trim().split('\n');
