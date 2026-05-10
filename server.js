@@ -354,7 +354,7 @@ function ytdlpGetUrlAndFormat(videoId) {
       '--no-check-certificate',
       url,
     ];
-    const proc = spawn('python3', ['-m', 'yt_dlp', ...args]);
+    const proc = spawn('yt-dlp', args);
     // FIX #6: Manual 20s kill timer since spawn() ignores timeout option
     const killer = setTimeout(() => {
       proc.kill('SIGKILL');
@@ -579,7 +579,7 @@ app.get('/api/stream/:id', async (req, res) => {
     ytUrl,
   ];
   let proc;
-  try { proc = spawn('python3', ['-m', 'yt_dlp', ...args]); }
+  try { proc = spawn('yt-dlp', args); }
   catch (e) { if (!res.headersSent) res.status(500).json({ error: 'yt-dlp not found' }); return; }
 
   // FIX #8: Use audio/webm as it's the most common format yt-dlp outputs;
