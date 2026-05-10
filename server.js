@@ -215,6 +215,22 @@ app.get('/api/suggest', async (req, res) => {
     res.json({ suggestions: [] });
   }
 });
+app.get('/python-check', async (req, res) => {
+  const { exec } = require('child_process');
+
+  exec('python3 --version', (err, stdout, stderr) => {
+    if (err) {
+      return res.json({
+        error: err.message,
+        stderr
+      });
+    }
+
+    res.json({
+      python: stdout
+    });
+  });
+});
 
 app.get('/api/search', async (req, res) => {
   const q = req.query.q;
