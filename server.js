@@ -357,7 +357,7 @@ function ytdlpGetUrlAndFormat(videoId) {
       '--no-warnings',
       '-o',
       '-',
-      ytUrl,
+      Url,
     ];
     const proc = spawn(YTDLP_PATH, args);
     // FIX #6: Manual 20s kill timer since spawn() ignores timeout option
@@ -583,6 +583,10 @@ app.get('/api/stream/:id', async (req, res) => {
     '--no-playlist',
     '-f',
     'bestaudio/best',
+    '--no-warnings',
+    '-o',
+    '-',
+    ytUrl,
   ];
   let proc;
   try { proc = spawn(YTDLP_PATH, args); }
