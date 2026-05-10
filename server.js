@@ -348,6 +348,7 @@ function ytdlpGetUrlAndFormat(videoId) {
   return new Promise((resolve, reject) => {
     const url = `https://www.youtube.com/watch?v=${videoId}`;
     const args = [
+      '--cookies', 'cookies.txt',
       '--no-playlist',
       '-f', 'bestaudio[protocol^=http]/best[protocol^=http]/bestaudio/best',
       '--print', '%(url)s\n%(ext)s\n%(protocol)s\n%(duration)s',
@@ -574,6 +575,7 @@ app.get('/api/stream/:id', async (req, res) => {
   const ytUrl = `https://www.youtube.com/watch?v=${id}`;
   const args = [
     '--no-playlist',
+    '--cookies', 'cookies.txt',
     '-f', 'bestaudio[protocol!=m3u8][protocol!=m3u8_native]/best',
     '--no-warnings',
     '-o', '-',
