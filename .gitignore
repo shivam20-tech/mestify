@@ -1,2 +1,6 @@
 node_modules
 .env
+cache
+*.mp4
+*.part
+*-player-script.js
