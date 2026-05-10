@@ -2316,6 +2316,8 @@
         navigator.mediaSession.setActionHandler('nexttrack', () => playNext());
         navigator.mediaSession.setActionHandler('previoustrack', () => playPrev());
         navigator.mediaSession.setActionHandler('seekto', (d) => { if (d.seekTime !== undefined) ytPlayer.seekTo(d.seekTime); });
+        navigator.mediaSession.setActionHandler('seekbackward', (d) => ytPlayer.seekTo(Math.max(0, (ytPlayer.getCurrentTime()) - (d.seekOffset || 10))));
+        navigator.mediaSession.setActionHandler('seekforward', (d) => ytPlayer.seekTo((ytPlayer.getCurrentTime()) + (d.seekOffset || 10)));
       }
     }
 
