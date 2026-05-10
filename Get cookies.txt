@@ -1,0 +1,3 @@
+cookies.txt
+Get cookies.txt
+*.txt
