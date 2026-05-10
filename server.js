@@ -631,16 +631,39 @@ app.get('/api/stream/:id', async (req, res) => {
 });
 
 // ── /api/prefetch/:id ─────────────────────────────────────────────────
+
+// ── Health check ───────────────────────────────────────────────────
+app.get('/health', (_req, res) =>
+  res.json({ status: 'ok', ytmusicReady, time: new Date() })
+);
+
+// ── Catch-all: serve index.html ────────────────────────────────────
+app.get('*', (req, res) => {
+  if (!req.path.startsWith('/api')) res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+app.listen(PORT, () =>
+  console.log(`🎵 Mestify backend running → http://localhost:${PORT}`)
+);
 app.get('/api/prefetch/:id', async (req, res) => {
   const id = req.params.id;
-  if (!/^[a-zA-Z0-9_-]{11}$/.test(id)) return res.sendStatus(400);
+
+  if (!/^[a-zA-Z0-9_-]{11}$/.test(id)) {
+    return res.sendStatus(400);
+  }
+
   res.sendStatus(202);
 
   const cacheFile = path.join(AUDIO_CACHE_DIR, `${id}.m4a`);
-  if (fs.existsSync(cacheFile) && fs.statSync(cacheFile).size > 65536) return;
 
-  // FIX #9: Guard against concurrent prefetch with same ID BEFORE any await
-  if (_downloading.has(id)) return;
+  if (fs.existsSync(cacheFile) && fs.statSync(cacheFile).size > 65536) {
+    return;
+  }
+
+  if (_downloading.has(id)) {
+    return;
+  }
+
   _downloading.add(id);
 
   try {
@@ -651,17 +674,4 @@ app.get('/api/prefetch/:id', async (req, res) => {
   } finally {
     _downloading.delete(id);
   }
-
-  // ── Health check ───────────────────────────────────────────────────
-  app.get('/health', (_req, res) =>
-    res.json({ status: 'ok', ytmusicReady, time: new Date() })
-  );
-
-  // ── Catch-all: serve index.html ────────────────────────────────────
-  app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api')) res.sendFile(path.join(__dirname, 'index.html'));
-  });
-
-  app.listen(PORT, () =>
-    console.log(`🎵 Mestify backend running → http://localhost:${PORT}`)
-  );
+});
