@@ -338,7 +338,7 @@ function ytdlpGetUrlAndFormat(videoId) {
       '--no-check-certificate',
       url,
     ];
-    const proc = spawn('pytho3n', ['-m', 'yt_dlp', ...args]);
+    const proc = spawn('python3', ['-m', 'yt_dlp', ...args]);
     // FIX #6: Manual 20s kill timer since spawn() ignores timeout option
     const killer = setTimeout(() => {
       proc.kill('SIGKILL');
