@@ -349,13 +349,15 @@ function ytdlpGetUrlAndFormat(videoId) {
     const url = `https://www.youtube.com/watch?v=${videoId}`;
     const args = [
       '--cookies', 'cookies.txt',
+      '--extractor-args',
+      'youtube:player_client=android',
       '--no-playlist',
       '-f',
       'bestaudio/best',
-      '--print', '%(url)s\n%(ext)s\n%(protocol)s\n%(duration)s',
       '--no-warnings',
-      '--no-check-certificate',
-      url,
+      '-o',
+      '-',
+      ytUrl,
     ];
     const proc = spawn(YTDLP_PATH, args);
     // FIX #6: Manual 20s kill timer since spawn() ignores timeout option
@@ -575,13 +577,12 @@ app.get('/api/stream/:id', async (req, res) => {
   // FIX #8: Detect actual audio format and set correct Content-Type
   const ytUrl = `https://www.youtube.com/watch?v=${id}`;
   const args = [
-    '--no-playlist',
     '--cookies', 'cookies.txt',
+    '--extractor-args',
+    'youtube:player_client=android',
+    '--no-playlist',
     '-f',
     'bestaudio/best',
-    '--no-warnings',
-    '-o', '-',
-    ytUrl,
   ];
   let proc;
   try { proc = spawn(YTDLP_PATH, args); }
