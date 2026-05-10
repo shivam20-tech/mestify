@@ -1,0 +1,35 @@
+{
+  "name": "Mestify",
+  "short_name": "Mestify",
+  "description": "Smart music streaming – mood-matched songs, zero ads, background playback",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f0f0f",
+  "theme_color": "#ff0040",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='40' fill='%23ff0040'/%3E%3Ctext x='96' y='130' text-anchor='middle' font-size='100'%3E%F0%9F%8E%B5%3C/text%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='80' fill='%23ff0040'/%3E%3Ctext x='256' y='340' text-anchor='middle' font-size='260'%3E%F0%9F%8E%B5%3C/text%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ],
+  "categories": ["music", "entertainment"],
+  "shortcuts": [
+    {
+      "name": "Search Music",
+      "url": "/?view=search",
+      "description": "Search for any song or artist"
+    },
+    {
+      "name": "Liked Songs",
+      "url": "/?view=liked",
+      "description": "Your liked songs playlist"
+    }
+  ]
+}
