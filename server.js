@@ -350,7 +350,8 @@ function ytdlpGetUrlAndFormat(videoId) {
     const args = [
       '--cookies', 'cookies.txt',
       '--no-playlist',
-      '-f', 'bestaudio[protocol^=http]/best[protocol^=http]/bestaudio/best',
+      '-f',
+      'bestaudio/best',
       '--print', '%(url)s\n%(ext)s\n%(protocol)s\n%(duration)s',
       '--no-warnings',
       '--no-check-certificate',
@@ -576,7 +577,8 @@ app.get('/api/stream/:id', async (req, res) => {
   const args = [
     '--no-playlist',
     '--cookies', 'cookies.txt',
-    '-f', 'bestaudio[protocol!=m3u8][protocol!=m3u8_native]/best',
+    '-f',
+    'bestaudio/best',
     '--no-warnings',
     '-o', '-',
     ytUrl,
