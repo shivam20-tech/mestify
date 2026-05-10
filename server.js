@@ -353,7 +353,7 @@ function ytdlpGetUrlAndFormat(videoId) {
       'youtube:player_client=android',
       '--no-playlist',
       '-f',
-      'bestaudio/best',
+      '18/bestaudio/best',
       '--print',
       '%(url)s\n%(ext)s\n%(protocol)s\n%(duration)s',
       '--no-warnings',
@@ -410,12 +410,7 @@ async function getCachedUrlInfo(videoId) {
   if (cached && cached.expiresAt > Date.now()) return cached;
 
   let info;
-  try {
-    info = await ytdlGetUrlAndFormat(videoId);
-  } catch (e) {
-    console.warn(`[stream:ytdl-core] failed for ${videoId}: ${e.message}, falling back to yt-dlp`);
-    info = await ytdlpGetUrlAndFormat(videoId);
-  }
+  info = await ytdlpGetUrlAndFormat(videoId);
 
   urlCache.set(videoId, { ...info, expiresAt: Date.now() + 4 * 60 * 60 * 1000 });
   // FIX #1: Evict by size after adding
