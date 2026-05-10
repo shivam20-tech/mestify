@@ -353,7 +353,7 @@ function ytdlpGetUrlAndFormat(videoId) {
       'youtube:player_client=android',
       '--no-playlist',
       '-f',
-      '18/bestaudio/best',
+      'bestaudio[ext=m4a]/bestaudio/best',
       '--print',
       '%(url)s\n%(ext)s\n%(protocol)s\n%(duration)s',
       '--no-warnings',
@@ -379,7 +379,7 @@ function ytdlpGetUrlAndFormat(videoId) {
       if (code === 0 && audioUrl?.startsWith('http')) {
         resolve({ url: audioUrl, ext, isHLS: protocol.includes('m3u8'), duration });
       } else {
-        reject(new Error(err.trim() || `yt-dlp exited ${code}`));
+        reject(new Error(err || `yt-dlp exited ${code}`));
       }
     });
     proc.on('error', e => { clearTimeout(killer); reject(new Error('yt-dlp not found: ' + e.message)); });
