@@ -4,7 +4,7 @@ nixPkgs = ["nodejs_20", "python311", "ffmpeg"]
 [phases.install]
 cmds = [
   "npm install",
-  "python -m pip install yt-dlp"
+  "python3 -m pip install yt-dlp"
 ]
 
 [start]

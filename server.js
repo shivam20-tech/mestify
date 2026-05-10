@@ -57,7 +57,7 @@ let ytmusicReady = false;
 // ═══════════════════════════════════════════════════════════════
 let ytdl = null;
 try {
-  ytdl = require('@distube/ytdl-core');
+  ytdl = require('ytdl-core');
   console.log('✅ @distube/ytdl-core loaded (fallback)');
 } catch (e) {
   console.warn('⚠️  ytdl-core not available:', e.message);
@@ -338,7 +338,7 @@ function ytdlpGetUrlAndFormat(videoId) {
       '--no-check-certificate',
       url,
     ];
-    const proc = spawn('python', ['-m', 'yt_dlp', ...args]);
+    const proc = spawn('pytho3n', ['-m', 'yt_dlp', ...args]);
     // FIX #6: Manual 20s kill timer since spawn() ignores timeout option
     const killer = setTimeout(() => {
       proc.kill('SIGKILL');
@@ -563,7 +563,7 @@ app.get('/api/stream/:id', async (req, res) => {
     ytUrl,
   ];
   let proc;
-  try { proc = spawn('python', ['-m', 'yt_dlp', ...args]); }
+  try { proc = spawn('python3', ['-m', 'yt_dlp', ...args]); }
   catch (e) { if (!res.headersSent) res.status(500).json({ error: 'yt-dlp not found' }); return; }
 
   // FIX #8: Use audio/webm as it's the most common format yt-dlp outputs;
