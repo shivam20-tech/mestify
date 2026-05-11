@@ -52,6 +52,19 @@ let ytmusicReady = false;
     console.error('❌ ytmusic-api init failed:', e.message);
   }
 })();
+async function forceAudioResume() {
+  try {
+    if (audioEl.paused) {
+      await audioEl.play();
+    }
+
+    if (audioContext && audioContext.state === 'suspended') {
+      await audioContext.resume();
+    }
+  } catch (e) {
+    console.log('resume blocked:', e);
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════
 //  @distube/ytdl-core  (fallback)
