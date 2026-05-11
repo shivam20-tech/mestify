@@ -3,19 +3,6 @@ const YTMusic = require('ytmusic-api');
 const ytmusic = new YTMusic();
 let ready = false;
 
-// We also use youtubei.js as a fallback search engine
-// (imported lazily to avoid circular deps)
-let _innertubeSearch = null;
-async function getInnertubeSearch() {
-  if (_innertubeSearch) return _innertubeSearch;
-  try {
-    const { Innertube } = require('youtubei.js');
-    const yt = await Innertube.create();
-    _innertubeSearch = yt;
-    return yt;
-  } catch (_) { return null; }
-}
-
 (async () => {
   try {
     await ytmusic.initialize();
@@ -28,69 +15,57 @@ async function getInnertubeSearch() {
 
 function isReady() { return ready; }
 
-// ── Map youtubei.js result → standard track format ───────────────────
-function mapYtjsTrack(t) {
-  if (!t) return null;
-  const id = t.id || t.video_id || t.videoId;
-  const title = t.title?.text || t.title || t.name;
-  const artist = t.artists?.[0]?.name
-    || t.author?.name
-    || t.short_description?.text
-    || 'Unknown';
-  const thumbnail = t.thumbnail?.contents?.[0]?.url
-    || t.thumbnails?.[0]?.url
-    || '';
-  if (!id || !title) return null;
-  return { id, title, artist, thumbnail };
-}
+// ── play-dl search (reliable cross-region fallback) ───────────────────
+let playdl = null;
+try {
+  playdl = require('play-dl');
+  console.log('✅ play-dl loaded (search fallback)');
+} catch (_) {}
 
-// ── Search via youtubei.js Music ─────────────────────────────────────
-async function innertubeSearch(query, limit = 15) {
+async function playDlSearch(query, limit = 15) {
+  if (!playdl) return [];
   try {
-    const yt = await getInnertubeSearch();
-    if (!yt) return [];
-
-    const results = await yt.music.search(query, { type: 'song' });
-    const tracks = [];
-
-    // Walk all sections (MusicShelf nodes)
-    for (const section of (results?.contents || [])) {
-      const items = section?.contents || section?.results || [];
-      for (const item of items) {
-        try {
-          const id = item.id;
-          // title is a Text node in youtubei.js
-          const title = item.title?.text ?? item.title ?? item.name;
-          const artist = item.artists?.[0]?.name
-            ?? item.author?.name
-            ?? item.short_description?.text
-            ?? 'Unknown';
-          const thumbnail = item.thumbnails?.contents?.[0]?.url
-            ?? item.thumbnails?.[0]?.url
-            ?? item.thumbnail?.url
-            ?? '';
-          if (id && title) tracks.push({ id, title, artist, thumbnail });
-        } catch (_) {}
-      }
-    }
-
-    if (tracks.length) {
-      console.log(`[ytmusic] innertube search returned ${tracks.length} results for "${query}"`);
-    } else {
-      console.warn(`[ytmusic] innertube search returned 0 results for "${query}"`);
-    }
-
-    return tracks.slice(0, limit);
+    const results = await playdl.search(query, {
+      source: { youtube: 'video' },
+      limit: limit + 5,
+    });
+    return results
+      .map(r => ({
+        id: r.id,
+        title: r.title || '',
+        artist: r.channel?.name || 'Unknown',
+        thumbnail: r.thumbnails?.[r.thumbnails.length - 1]?.url
+          || r.thumbnails?.[0]?.url
+          || '',
+      }))
+      .filter(s => s.id && s.title)
+      .slice(0, limit);
   } catch (e) {
-    console.warn('[ytmusic] innertube search failed:', e.message.slice(0, 80));
+    console.warn('[ytmusic] play-dl search failed:', e.message.slice(0, 60));
     return [];
   }
 }
 
-// ── Public API ────────────────────────────────────────────────────────
+// ── yt-search fallback (last resort) ─────────────────────────────────
+let ytsearch = null;
+try { ytsearch = require('yt-search'); } catch (_) {}
 
+async function ytSearchFallback(query, limit = 15) {
+  if (!ytsearch) return [];
+  try {
+    const r = await ytsearch(query);
+    return (r.videos || []).slice(0, limit).map(v => ({
+      id: v.videoId,
+      title: v.title,
+      artist: v.author?.name || v.author || 'Unknown',
+      thumbnail: v.thumbnail || '',
+    })).filter(s => s.id && s.title);
+  } catch (_) { return []; }
+}
+
+// ── Unified search: ytmusic-api → play-dl → yt-search ────────────────
 async function searchSongs(query, limit = 15) {
-  // Try ytmusic-api first, fall back to youtubei.js on 400/error
+  // 1. Try ytmusic-api (best quality results)
   if (ready) {
     try {
       const results = await ytmusic.searchSongs(query);
@@ -102,11 +77,19 @@ async function searchSongs(query, limit = 15) {
       })).filter(s => s.id && s.title);
       if (mapped.length) return mapped;
     } catch (e) {
-      console.warn('[ytmusic] searchSongs error → falling back to youtubei.js:', e.message.slice(0, 60));
+      console.warn('[ytmusic] searchSongs → play-dl fallback:', e.message.slice(0, 50));
     }
   }
-  // Fallback: youtubei.js Music search
-  return innertubeSearch(query, limit);
+
+  // 2. Fallback: play-dl
+  const pdResults = await playDlSearch(query, limit);
+  if (pdResults.length) {
+    console.log(`[ytmusic] play-dl returned ${pdResults.length} results`);
+    return pdResults;
+  }
+
+  // 3. Last resort: yt-search
+  return ytSearchFallback(query, limit);
 }
 
 async function search(query, limit = 20) {
@@ -123,10 +106,13 @@ async function search(query, limit = 20) {
         }));
       if (mapped.length) return mapped;
     } catch (e) {
-      console.warn('[ytmusic] search error → falling back to youtubei.js:', e.message.slice(0, 60));
+      console.warn('[ytmusic] search → play-dl fallback:', e.message.slice(0, 50));
     }
   }
-  return innertubeSearch(query, limit);
+
+  const pdResults = await playDlSearch(query, limit);
+  if (pdResults.length) return pdResults;
+  return ytSearchFallback(query, limit);
 }
 
 module.exports = { searchSongs, search, isReady };
