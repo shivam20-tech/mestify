@@ -1,9 +1,30 @@
-node_modules
+# Dependencies
+node_modules/
+
+# Environment & secrets — NEVER commit these
 .env
-cache
-*.mp4
-*.part
-*-player-script.js
 cookies.txt
-Get cookies.txt
 *.txt
+
+# Audio & media cache
+*.mp4
+*.m4a
+*.part
+*.tmp
+*-player-script.js
+
+# yt-dlp binary (if downloaded locally)
+yt-dlp.exe
+yt-dlp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*

@@ -1,734 +1,98 @@
 require('dotenv').config();
 require('dns').setDefaultResultOrder('ipv4first');
+
 const express = require('express');
 const cors = require('cors');
-const axios = require('axios');
 const path = require('path');
-const fs = require('fs');
-const os = require('os');
-const { spawn } = require('child_process');
 
-// FIX #14: Use YTDLP_PATH constant consistently everywhere
-const YTDLP_PATH = '/usr/local/bin/yt-dlp';
+const { initCache } = require('./src/config/redis');
+const env = require('./src/config/env');
 
-// ═══════════════════════════════════════════════════════════════
-//  AUDIO CACHE DIR
-// ═══════════════════════════════════════════════════════════════
-const AUDIO_CACHE_DIR = path.join(os.tmpdir(), 'mestify_audio');
-if (!fs.existsSync(AUDIO_CACHE_DIR)) fs.mkdirSync(AUDIO_CACHE_DIR, { recursive: true });
+// Routes
+const searchRoute  = require('./src/routes/search.route');
+const streamRoute  = require('./src/routes/stream.route');
+const relatedRoute = require('./src/routes/related.route');
+const healthRoute  = require('./src/routes/health.route');
 
-function cleanAudioCache(maxFiles = 100) {
+async function bootstrap() {
+  // Init cache (Redis or in-memory fallback)
+  await initCache();
+
+  const app = express();
+
+  // ── Middleware ──────────────────────────────────────────────────────
+  app.use(cors({
+    origin: env.ALLOWED_ORIGINS === '*' ? '*' : env.ALLOWED_ORIGINS.split(','),
+    methods: ['GET', 'POST'],
+  }));
+  app.use(express.json());
+
+  // ── Rate limiting (uses express-rate-limit if installed) ───────────
   try {
-    const files = fs.readdirSync(AUDIO_CACHE_DIR)
-      .map(f => ({ f, p: path.join(AUDIO_CACHE_DIR, f), t: fs.statSync(path.join(AUDIO_CACHE_DIR, f)).mtimeMs }))
-      .sort((a, b) => b.t - a.t);
-    files.slice(maxFiles).forEach(({ p }) => { try { fs.unlinkSync(p); } catch (_) { } });
-  } catch (_) { }
-}
-cleanAudioCache();
-setInterval(cleanAudioCache, 30 * 60 * 1000);
+    const rateLimit = require('express-rate-limit');
 
-// Track in-progress downloads
-const _downloading = new Set();
+    // Global: 200 req/min
+    app.use('/api', rateLimit({
+      windowMs: 60 * 1000, max: 200,
+      standardHeaders: true, legacyHeaders: false,
+      message: { error: 'Too many requests — slow down' },
+    }));
 
-const app = express();
-const PORT = process.env.PORT || 5000;
-app.use(cors());
-app.use(express.json());
-app.use(express.static(path.join(__dirname)));
+    // Stream endpoints: 30 req/min (prevents abuse)
+    app.use('/api/stream', rateLimit({
+      windowMs: 60 * 1000, max: 30,
+      message: { error: 'Stream rate limit exceeded' },
+    }));
 
-// ═══════════════════════════════════════════════════════════════
-//  ytmusic-api
-// ═══════════════════════════════════════════════════════════════
-const YTMusic = require('ytmusic-api');
-const ytmusic = new YTMusic();
-let ytmusicReady = false;
+    // Search: 60 req/min
+    app.use('/api/search', rateLimit({
+      windowMs: 60 * 1000, max: 60,
+      message: { error: 'Search rate limit exceeded' },
+    }));
 
-(async () => {
-  try {
-    await ytmusic.initialize();
-    ytmusicReady = true;
-    console.log('✅ ytmusic-api initialised');
-  } catch (e) {
-    console.error('❌ ytmusic-api init failed:', e.message);
+    console.log('✅ Rate limiting enabled');
+  } catch (_) {
+    console.warn('⚠️  express-rate-limit not installed — run: npm install express-rate-limit');
   }
-})();
 
-// FIX #1 (Bug #3): Actually require ytdl-core so the fallback works
-let ytdl = null;
-try {
-  ytdl = require('@distube/ytdl-core');
-  console.log('✅ @distube/ytdl-core loaded (fallback)');
-} catch (e) {
-  console.warn('⚠️  ytdl-core not available:', e.message);
-}
+  // ── Static files (serves index.html + manifest + icons) ───────────
+  app.use(express.static(path.join(__dirname)));
 
-// ═══════════════════════════════════════════════════════════════
-//  SMART AUTOPLAY HELPERS
-// ═══════════════════════════════════════════════════════════════
-const globalSeenIds = new Set();
-const SEEN_CAP = 300;
-function addToGlobalSeen(id) {
-  if (globalSeenIds.size >= SEEN_CAP) {
-    globalSeenIds.delete(globalSeenIds.values().next().value);
-  }
-  globalSeenIds.add(id);
-}
+  // ── API Routes ─────────────────────────────────────────────────────
+  app.use('/api', searchRoute);
+  app.use('/api', streamRoute);
+  app.use('/api', relatedRoute);
+  app.use('/',    healthRoute);
 
-function extractCoreSongTitle(title) {
-  return title
-    .replace(/\([^)]*\)/g, '')
-    .replace(/\[[^\]]*\]/g, '')
-    .replace(/\|.*/g, '')
-    .replace(/[-–]\s*(official|audio|video|lyrics?|hd|4k|full|song|music|ft\.?|feat\.).*$/gi, '')
-    .replace(/\s+/g, ' ').trim();
-}
-
-const STOP_WORDS = new Set([
-  'the', 'a', 'an', 'of', 'in', 'on', 'at', 'to', 'for', 'and', 'or', 'but',
-  'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
-  'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might',
-  'my', 'your', 'his', 'her', 'its', 'our', 'their', 'this', 'that', 'with',
-  'from', 'by', 'as', 'up', 'out', 'so', 'if', 'not', 'no', 'me', 'you', 'he',
-  'she', 'we', 'they', 'it', 'i', 'oh', 'oo', 'aa', 'hey', 'yeah', 'yeh', 'haan',
-]);
-function extractKeywords(cleanTitle) {
-  return cleanTitle.toLowerCase().split(/\s+/)
-    .filter(w => w.length > 2 && !STOP_WORDS.has(w)).slice(0, 2);
-}
-
-function detectLanguage(text) {
-  const t = text.toLowerCase();
-  if (/marathi|lavani|koligeet|maharashtr/.test(t)) return 'marathi';
-  if (/punjabi|bhangra/.test(t)) return 'punjabi';
-  if (/bollywood|hindi film|filmi|hindi song|\bhindi\b/.test(t)) return 'bollywood';
-  if (/tamil|kollywood/.test(t)) return 'tamil';
-  if (/telugu|tollywood/.test(t)) return 'telugu';
-  if (/kannada|sandalwood/.test(t)) return 'kannada';
-  if (/malayalam/.test(t)) return 'malayalam';
-  if (/k.?pop|bts|blackpink|twice|stray kids|nct|aespa/.test(t)) return 'kpop';
-  if (/lofi|lo.fi|chill beats|study music/.test(t)) return 'lofi';
-  if (/\brap\b|hip.?hop|trap/.test(t)) return 'hiphop';
-  if (/\brock\b|metal|punk|grunge/.test(t)) return 'rock';
-  if (/\brnb\b|r&b|r'n'b/.test(t)) return 'rnb';
-  if (/electronic|edm|techno|house|dubstep/.test(t)) return 'electronic';
-  return 'pop';
-}
-
-function detectMood(text) {
-  const t = text.toLowerCase();
-  if (/\bbhajan\b|\baarti\b|\bkirtan\b|\bmantra\b|\bdevotional\b|\bsufi\b|\bqawwali\b/.test(t)) return 'devotional spiritual';
-  if (/\bghazal\b|\bacoustic\b|\bunplugged\b|\bsoulful\b|\bmellow\b|\bsoft\b|\brelax\b|\bcalm\b|\bclassical\b/.test(t)) return 'slow acoustic';
-  if (/\bsad\b|\bheartbreak\b|\btears\b|\balone\b|\bdard\b|\bgham\b|\btanha\b/.test(t)) return 'sad emotional';
-  if (/\bromantic\b|\blove song\b|\bpyaar\b|\bishq\b|\bmohabbat\b/.test(t)) return 'romantic love';
-  if (/\blo[\s-]?fi\b|\bchill\b|\bvibes?\b|\bstudy\b/.test(t)) return 'lofi chill';
-  if (/\bparty\b|\bdance\b|\bdj\b|\bclub\b|\bgarba\b/.test(t)) return 'party dance';
-  if (/\bworkout\b|\bgym\b|\bmotivat\b|\bpower\b|\bfire\b/.test(t)) return 'workout power';
-  return '';
-}
-
-const ENERGETIC_WORDS = /\b(party|dance|dj|club|banger|hype|garba|disco|edm|techno|rave|bhangra|dhol|drill|trap|bass|drop|workout|gym|fire|pump)\b/i;
-const CALM_WORDS = /\b(slow|chill|lofi|lo-fi|acoustic|unplugged|soft|quiet|peaceful|soothing|relax|sleep|ballad|mellow|classical|ghazal|sufi|devotional|sad|heartbreak)\b/i;
-function isMoodClash(resultTitle, currentMood) {
-  if (!currentMood) return false;
-  const isCalmMood = /slow|acoustic|sad|emotional|romantic|lofi|chill|devotional|spiritual/.test(currentMood);
-  const isEnergyMood = /party|dance|bhangra|workout|power/.test(currentMood);
-  if (isCalmMood && ENERGETIC_WORDS.test(resultTitle)) return true;
-  if (isEnergyMood && CALM_WORDS.test(resultTitle)) return true;
-  return false;
-}
-
-const GENRE_QUERIES = {
-  marathi: ['marathi songs 2025', 'new marathi hits', 'marathi pop songs'],
-  punjabi: ['punjabi hits 2025', 'new punjabi songs', 'top punjabi music'],
-  bollywood: ['bollywood hits 2025', 'new hindi songs', 'top bollywood songs'],
-  tamil: ['tamil hits 2025', 'new tamil songs', 'popular kollywood songs'],
-  telugu: ['telugu hits 2025', 'new telugu songs', 'popular telugu music'],
-  kannada: ['kannada hits 2025', 'new kannada songs playlist'],
-  malayalam: ['malayalam hits 2025', 'new malayalam songs'],
-  kpop: ['kpop hits 2025', 'popular kpop songs', 'new kpop releases'],
-  lofi: ['lofi chill music mix', 'chill study beats', 'relaxing lofi hip hop'],
-  hiphop: ['hip hop hits 2025', 'rap songs 2025', 'new hip hop tracks'],
-  rock: ['rock hits playlist', 'popular rock songs 2025', 'classic rock songs'],
-  rnb: ['rnb hits 2025', 'new r&b songs', 'popular rnb music'],
-  electronic: ['electronic dance music 2025', 'edm hits playlist'],
-  indie: ['indie pop hits 2025', 'best indie songs', 'indie folk playlist 2025'],
-  pop: ['pop hits 2025', 'popular songs 2025', 'top charting songs'],
-};
-
-const JUNK_PATTERN = /\b(remix|remixed|slowed|reverb|sped[\s-]?up|nightcore|8d[\s-]?audio|432[\s-]?hz|cover|covers|karaoke|instrumental|bgm|ringtone|status|whatsapp|lyric[\s-]?video|lyrics?|making[\s-]?of|acoustic[\s-]?version|unplugged[\s-]?version|mashup|medley|tribute|parody|reaction|extended[\s-]?mix|radio[\s-]?edit)\b/i;
-function isJunkVideo(title) { return JUNK_PATTERN.test(title); }
-
-function normaliseTitle(title) {
-  return title.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
-}
-function isNearDuplicate(title, seenTitles) {
-  const words = normaliseTitle(title).split(' ').filter(w => w.length > 3);
-  if (!words.length) return false;
-  for (const seen of seenTitles) {
-    const sw = normaliseTitle(seen).split(' ').filter(w => w.length > 3);
-    const matches = words.filter(w => sw.includes(w)).length;
-    if (matches / Math.max(words.length, sw.length, 1) >= 0.72) return true;
-  }
-  return false;
-}
-function shuffleArray(arr) {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
-async function ytmusicSearch(query, limit = 15) {
-  if (!ytmusicReady) return [];
-  try {
-    const results = await ytmusic.searchSongs(query);
-    return results.slice(0, limit).map(song => ({
-      id: song.videoId,
-      title: song.name,
-      artist: song.artist?.name || song.artists?.[0]?.name || 'Unknown',
-      thumbnail: song.thumbnails?.[song.thumbnails.length - 1]?.url
-        || song.thumbnails?.[0]?.url || '',
-    })).filter(s => s.id && s.title);
-  } catch (e) {
-    console.warn('[ytmusic] searchSongs error:', e.message);
-    return [];
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-//  ROUTES
-// ═══════════════════════════════════════════════════════════════
-
-app.get('/api/suggest', async (req, res) => {
-  const { q } = req.query;
-  if (!q) return res.json({ suggestions: [] });
-  try {
-    const { data } = await axios.get('https://suggestqueries.google.com/complete/search', {
-      params: { client: 'firefox', ds: 'yt', q },
-      headers: { 'Accept-Language': 'en-US,en;q=0.9' },
-    });
-    res.json({ suggestions: (data[1] || []).slice(0, 8) });
-  } catch (err) {
-    res.json({ suggestions: [] });
-  }
-});
-
-app.get('/python-check', async (req, res) => {
-  const { exec } = require('child_process');
-  exec('python3 --version', (err, stdout, stderr) => {
-    if (err) return res.json({ error: err.message, stderr });
-    res.json({ python: stdout });
+  // ── SPA fallback ───────────────────────────────────────────────────
+  app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api')) {
+      res.sendFile(path.join(__dirname, 'index.html'));
+    }
   });
-});
 
-app.get('/api/search', async (req, res) => {
-  const q = req.query.q;
-  if (!q) return res.status(400).json({ error: 'Query required' });
-  try {
-    const items = await ytmusicSearch(q, 20);
-    if (items.length) return res.json({ items });
-    if (ytmusicReady) {
-      const r2 = await ytmusic.search(q);
-      const mapped = (r2 || []).slice(0, 20)
-        .filter(s => s.videoId && s.name)
-        .map(s => ({
-          id: s.videoId,
-          title: s.name,
-          artist: s.artist?.name || s.artists?.[0]?.name || 'Unknown',
-          thumbnail: s.thumbnails?.[0]?.url || '',
-        }));
-      return res.json({ items: mapped });
-    }
-    res.json({ items: [] });
-  } catch (err) {
-    console.error('[search] error:', err.message);
-    res.status(500).json({ error: 'Search failed' });
-  }
-});
+  // ── Start ──────────────────────────────────────────────────────────
+  app.listen(env.PORT, () => {
+    console.log(`🎵 Mestify → http://localhost:${env.PORT}`);
+    console.log(`   NODE_ENV:   ${env.NODE_ENV}`);
+    console.log(`   REDIS_URL:  ${env.REDIS_URL ? '✅ set' : '⚠️  not set (in-memory)'}`);
+    console.log(`   YTDLP_PATH: ${env.YTDLP_PATH}`);
 
-app.get('/api/trending', async (req, res) => {
-  const genre = req.query.genre || 'pop';
-  try {
-    const pool = GENRE_QUERIES[genre] || GENRE_QUERIES.pop;
-    const query = pool[Math.floor(Math.random() * pool.length)];
-    const items = await ytmusicSearch(query, 20);
-    res.json({ items });
-  } catch (err) {
-    console.error('[trending] error:', err.message);
-    res.status(500).json({ error: 'Trending failed' });
-  }
-});
-
-app.get('/api/related/:videoId', async (req, res) => {
-  const { videoId } = req.params;
-  const rawTitle = String(req.query.title || '').replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200);
-  const rawArtist = String(req.query.artist || '').replace(/[\x00-\x1f\x7f]/g, '').slice(0, 100);
-  try {
-    const cleanTitle = extractCoreSongTitle(rawTitle);
-    const lang = detectLanguage(`${rawTitle} ${rawArtist}`);
-    const mood = detectMood(`${rawTitle} ${rawArtist}`);
-    const keywords = extractKeywords(cleanTitle);
-    const genreLabel = {
-      marathi: 'marathi', punjabi: 'punjabi', bollywood: 'bollywood hindi',
-      tamil: 'tamil', telugu: 'telugu', kannada: 'kannada', malayalam: 'malayalam',
-      kpop: 'kpop', lofi: 'lofi chill', hiphop: 'hip hop',
-      rock: 'rock', rnb: 'rnb', electronic: 'edm electronic', pop: 'pop',
-    }[lang] || 'pop';
-
-    const artistKw = rawArtist
-      .replace(/\s*(official|music|records|entertainment|vevo|films?|studios?|india)\s*/gi, '')
-      .trim().split(/\s+/).slice(0, 2).join(' ');
-
-    const queries = [];
-    if (artistKw.length > 2) queries.push(mood ? `${artistKw} ${mood} songs` : `${artistKw} songs`);
-    if (mood) queries.push(`${genreLabel} ${mood} songs`);
-    else if (keywords.length) queries.push(`${keywords.join(' ')} ${genreLabel} songs`);
-    else queries.push(`${genreLabel} songs 2025`);
-    const poolQ = GENRE_QUERIES[lang] || GENRE_QUERIES.pop;
-    queries.push(poolQ[Math.floor(Math.random() * poolQ.length)]);
-
-    console.log(`[related] ${videoId} lang=${lang} mood="${mood}" queries:`, queries);
-
-    const localSeen = new Set([videoId, ...globalSeenIds]);
-    const seenTitles = rawTitle ? [rawTitle] : [];
-    const allItems = [];
-
-    for (const q of queries) {
-      try {
-        const results = await ytmusicSearch(q, 15);
-        for (const item of results) {
-          if (localSeen.has(item.id)) continue;
-          if (isJunkVideo(item.title)) continue;
-          if (isNearDuplicate(item.title, seenTitles)) continue;
-          if (isMoodClash(item.title, mood)) continue;
-          localSeen.add(item.id); seenTitles.push(item.title); allItems.push(item);
-        }
-      } catch (qErr) {
-        console.warn(`[related] query "${q}" failed:`, qErr.message);
-      }
-    }
-
-    const items = shuffleArray(allItems).slice(0, 20);
-    items.forEach(s => addToGlobalSeen(s.id));
-    addToGlobalSeen(videoId);
-    console.log(`[related] returning ${items.length} tracks`);
-    res.json({ items });
-  } catch (err) {
-    console.error('[related] error:', err.message);
-    try {
-      const fallback = await ytmusicSearch('popular music hits 2025', 15);
-      const items = fallback.filter(s => !globalSeenIds.has(s.id));
-      items.forEach(s => addToGlobalSeen(s.id));
-      res.json({ items });
-    } catch (e2) {
-      res.status(500).json({ error: 'Related fetch failed', items: [] });
-    }
-  }
-});
-
-// ═══════════════════════════════════════════════════════════════
-//  STREAMING — yt-dlp PRIMARY  +  ytdl-core FALLBACK
-// ═══════════════════════════════════════════════════════════════
-
-// Try multiple YouTube player clients in order — iOS is least bot-blocked,
-// android is second, web is last resort. Each attempt gets its own timeout.
-const YTDLP_CLIENT_STRATEGIES = [
-  {
-    clientArg: 'youtube:player_client=ios',
-    extraArgs: ['--add-header', 'X-Forwarded-For:8.8.8.8'],
-  },
-  {
-    clientArg: 'youtube:player_client=android',
-    extraArgs: [],
-  },
-  {
-    clientArg: 'youtube:player_client=web',
-    extraArgs: [
-      '--user-agent',
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123 Safari/537.36',
-    ],
-  },
-];
-
-// Single attempt with one client strategy
-function _ytdlpAttempt(videoId, strategy) {
-  return new Promise((resolve, reject) => {
-    const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    const cookiesPath = path.join(__dirname, 'cookies.txt');
-    const hasCookies = fs.existsSync(cookiesPath);
-
-    const args = [
-      ...(hasCookies ? ['--cookies', cookiesPath] : []),
-      '--extractor-args', strategy.clientArg,
-      ...strategy.extraArgs,
-      '--no-playlist',
-      '--geo-bypass',
-      '--no-check-certificates',
-      '-f', 'bestaudio/best',
-      '--get-url',
-      ytUrl,
-    ];
-
-    const proc = spawn(YTDLP_PATH, args);
-    let out = '';
-    let err = '';
-
-    const killer = setTimeout(() => {
-      proc.kill('SIGKILL');
-      reject(new Error(`yt-dlp timeout (${strategy.clientArg})`));
-    }, 15000);
-
-    proc.stdout.on('data', d => { out += d.toString(); });
-    proc.stderr.on('data', d => { err += d.toString(); });
-
-    proc.on('close', code => {
-      clearTimeout(killer);
-      const url = out.trim();
-      if (code === 0 && url.startsWith('http')) {
-        console.log(`[yt-dlp] ✅ success with ${strategy.clientArg}`);
-        resolve({ url, ext: 'm4a', isHLS: false, duration: 0 });
+    // Verify yt-dlp binary is accessible
+    const { exec } = require('child_process');
+    exec(`"${env.YTDLP_PATH}" --version`, (err, stdout) => {
+      if (err) {
+        console.error(`   ❌ yt-dlp NOT found at "${env.YTDLP_PATH}"`);
+        console.error(`      → Install: pip install yt-dlp  OR  winget install yt-dlp`);
+        console.error(`      → Or set YTDLP_PATH=C:\\path\\to\\yt-dlp.exe in .env`);
       } else {
-        // Detect cookie expiry specifically so we can log a helpful message
-        if (err.includes('Sign in to confirm') || err.includes('bot')) {
-          console.error('🍪 [yt-dlp] Bot detection triggered — re-export cookies.txt from your browser');
-        }
-        reject(new Error(err.slice(0, 300) || `yt-dlp exited ${code}`));
+        console.log(`   yt-dlp:     ✅ v${stdout.trim()}`);
       }
     });
-
-    proc.on('error', e => {
-      clearTimeout(killer);
-      reject(e);
-    });
   });
 }
 
-// Tries all client strategies in order, returns first success
-async function ytdlpGetUrlAndFormat(videoId) {
-  let lastError;
-  for (const strategy of YTDLP_CLIENT_STRATEGIES) {
-    try {
-      return await _ytdlpAttempt(videoId, strategy);
-    } catch (e) {
-      console.warn(`[yt-dlp] ${strategy.clientArg} failed:`, e.message.slice(0, 120));
-      lastError = e;
-    }
-  }
-  throw new Error(`All yt-dlp strategies exhausted. Last error: ${lastError?.message?.slice(0, 200)}`);
-}
-
-// FIX #2 (Bug #7): ytdlGetUrlAndFormat is now actually called as fallback
-async function ytdlGetUrlAndFormat(videoId) {
-  if (!ytdl) throw new Error('ytdl-core not loaded');
-  const info = await ytdl.getInfo(videoId);
-  const format = ytdl.chooseFormat(info.formats, { quality: 'highestaudio', filter: 'audioonly' });
-  if (!format) throw new Error('No audio format found via ytdl-core');
-  const duration = parseFloat(info.videoDetails.lengthSeconds) || 0;
-  return { url: format.url, ext: format.container || 'mp4', isHLS: format.isHLS || false, duration };
-}
-
-// FIX #3: urlCache with TTL-aware eviction
-const urlCache = new Map();
-function evictExpiredUrlCache() {
-  const now = Date.now();
-  for (const [k, v] of urlCache.entries()) {
-    if (v.expiresAt <= now) urlCache.delete(k);
-  }
-}
-setInterval(evictExpiredUrlCache, 30 * 60 * 1000);
-
-// FIX #2 (Bug #7): getCachedUrlInfo now chains to ytdl-core on yt-dlp failure
-async function getCachedUrlInfo(videoId) {
-  const cached = urlCache.get(videoId);
-  if (cached && cached.expiresAt > Date.now()) return cached;
-
-  let info;
-  try {
-    info = await ytdlpGetUrlAndFormat(videoId);
-  } catch (e) {
-    console.warn('[yt-dlp] failed, trying ytdl-core fallback:', e.message);
-    info = await ytdlGetUrlAndFormat(videoId);
-  }
-
-  urlCache.set(videoId, { ...info, expiresAt: Date.now() + 12 * 60 * 60 * 1000 });
-  if (urlCache.size > 200) {
-    for (const k of urlCache.keys()) {
-      urlCache.delete(k);
-      if (urlCache.size <= 180) break;
-    }
-  }
-  return info;
-}
-
-function serveCachedFile(cacheFile, req, res) {
-  const stat = fs.statSync(cacheFile);
-  const total = stat.size;
-  const range = req.headers.range;
-  if (range) {
-    const parts = range.replace(/bytes=/, '').split('-');
-    const start = parseInt(parts[0], 10);
-    const end = parseInt(parts[1]) || total - 1;
-    const safeEnd = Math.min(end, total - 1);
-    const safeStart = Math.max(0, start);
-    if (safeStart >= total) {
-      res.writeHead(416, { 'Content-Range': `bytes */${total}` });
-      return res.end();
-    }
-    res.writeHead(206, {
-      'Content-Range': `bytes ${safeStart}-${safeEnd}/${total}`,
-      'Accept-Ranges': 'bytes',
-      'Content-Length': safeEnd - safeStart + 1,
-      'Content-Type': 'audio/mp4',
-      'Cache-Control': 'public, max-age=3600',
-    });
-    fs.createReadStream(cacheFile, { start: safeStart, end: safeEnd }).pipe(res);
-  } else {
-    res.writeHead(200, {
-      'Content-Type': 'audio/mp4',
-      'Accept-Ranges': 'bytes',
-      'Content-Length': total,
-      'Cache-Control': 'public, max-age=3600',
-    });
-    fs.createReadStream(cacheFile).pipe(res);
-  }
-}
-
-// ── /api/stream-url/:id ────────────────────────────────────────────
-// FIX #4 (Bug #2): Route now properly resolves URL and returns JSON — cacheFile is no longer referenced
-app.get('/api/stream-url/:id', async (req, res) => {
-  const id = req.params.id;
-  if (!/^[a-zA-Z0-9_-]{11}$/.test(id)) return res.status(400).json({ error: 'Invalid video ID' });
-  try {
-    await new Promise(r => setTimeout(r, 1500)); // anti-rate-limit delay
-    const { url: audioUrl, isHLS, duration } = await getCachedUrlInfo(id);
-    return res.json({ url: audioUrl, isHLS, duration });
-  } catch (e) {
-    console.error('[stream-url] failed:', e.message);
-    return res.status(500).json({ error: 'Could not resolve audio URL' });
-  }
+bootstrap().catch(err => {
+  console.error('💥 Fatal startup error:', err);
+  process.exit(1);
 });
-
-// ── /api/prewarm/:id ─────────────────────────────────────────────────
-app.get('/api/prewarm/:id', (req, res) => {
-  const id = req.params.id;
-  if (!/^[a-zA-Z0-9_-]{11}$/.test(id)) return res.sendStatus(400);
-  res.sendStatus(202);
-  const cached = urlCache.get(id);
-  if (!cached || cached.expiresAt <= Date.now()) {
-    getCachedUrlInfo(id).catch(() => { });
-  }
-});
-
-// ── /api/stream/:id ───────────────────────────────────────────────────
-app.get('/api/stream/:id', async (req, res) => {
-  const id = req.params.id;
-  if (!/^[a-zA-Z0-9_-]{11}$/.test(id)) return res.status(400).json({ error: 'Invalid video ID' });
-
-  const cacheFile = path.join(AUDIO_CACHE_DIR, `${id}.m4a`);
-
-  // 1. Cache hit → instant serve with full range/seek support
-  if (fs.existsSync(cacheFile)) {
-    const sz = fs.statSync(cacheFile).size;
-    if (sz > 65536) {
-      console.log(`[stream:cache] ${id} (${(sz / 1048576).toFixed(1)} MB)`);
-      return serveCachedFile(cacheFile, req, res);
-    }
-    try { fs.unlinkSync(cacheFile); } catch (_) { }
-  }
-
-  if (_downloading.has(id)) {
-    return res.status(429).end();
-  }
-
-  // 2. Get direct audio URL
-  let audioUrl, isHLS;
-  try {
-    ({ url: audioUrl, isHLS } = await getCachedUrlInfo(id));
-  } catch (e) {
-    console.error('[stream] URL resolve failed:', e.message);
-    return res.status(500).json({ error: 'Could not resolve audio. Please retry.' });
-  }
-
-  const rangeHeader = req.headers.range;
-  const upHdr = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    'Accept': '*/*',
-    'Origin': 'https://www.youtube.com',
-    'Referer': 'https://www.youtube.com/',
-  };
-
-  // 3. Non-HLS: proxy with Content-Length + Accept-Ranges → seeking works
-  if (!isHLS) {
-    if (rangeHeader) upHdr['Range'] = rangeHeader;
-    try {
-      const upstream = await axios({ method: 'GET', url: audioUrl, responseType: 'stream', headers: upHdr, timeout: 30000 });
-      const status = (rangeHeader && upstream.status === 206) ? 206 : 200;
-      const mimeType = upstream.headers['content-type']?.split(';')[0] || 'audio/mp4';
-      const fwdH = { 'Content-Type': mimeType, 'Accept-Ranges': 'bytes' };
-      if (upstream.headers['content-length']) fwdH['Content-Length'] = upstream.headers['content-length'];
-      if (upstream.headers['content-range']) fwdH['Content-Range'] = upstream.headers['content-range'];
-      res.writeHead(status, fwdH);
-      console.log(`[stream:direct] ${id} ${status} ${rangeHeader || 'full'}`);
-
-      if (!rangeHeader) {
-        const tmpPath = cacheFile + '.tmp';
-        const isAlreadyWriting = fs.existsSync(tmpPath);
-        const tmp = isAlreadyWriting ? null : fs.createWriteStream(tmpPath);
-        let alive = true;
-        req.on('close', () => { alive = false; });
-        upstream.data.on('data', chunk => {
-          if (!res.writableEnded) res.write(chunk);
-          if (tmp) tmp.write(chunk);
-        });
-        upstream.data.on('end', () => {
-          if (tmp) {
-            tmp.end(() => {
-              if (alive) {
-                try { fs.renameSync(tmpPath, cacheFile); console.log(`[stream:saved] ${id}`); }
-                catch (_) { try { fs.unlinkSync(tmpPath); } catch (_) { } }
-              } else { try { fs.unlinkSync(tmpPath); } catch (_) { } }
-            });
-          }
-          if (!res.writableEnded) res.end();
-        });
-        upstream.data.on('error', () => {
-          if (tmp) { try { fs.unlinkSync(tmpPath); } catch (_) { } }
-        });
-      } else {
-        upstream.data.pipe(res);
-        req.on('close', () => upstream.data.destroy());
-      }
-      return;
-    } catch (e) {
-      console.warn('[stream:direct] failed:', e.message);
-      urlCache.delete(id);
-      if (res.headersSent) return;
-    }
-  }
-
-  // 4. Fallback: pipe yt-dlp + tee to cache
-  const ytUrl = `https://www.youtube.com/watch?v=${id}`;
-  const args = [
-    '--cookies', 'cookies.txt',
-    '--extractor-args', 'youtube:player_client=android',
-    '--no-playlist',
-    '--quiet',
-    '--no-progress',
-    '-f', '18/bestaudio/best',
-    '--no-warnings',
-    '-o', '-',
-    ytUrl,
-  ];
-
-  let proc;
-  // FIX #14: Use YTDLP_PATH constant
-  try { proc = spawn(YTDLP_PATH, args); }
-  catch (e) { if (!res.headersSent) res.status(500).json({ error: 'yt-dlp not found' }); return; }
-
-  res.writeHead(200, {
-    'Content-Type': 'audio/mp4',
-    'Transfer-Encoding': 'chunked',
-    'Cache-Control': 'no-cache',
-  });
-
-  const tmpPath = cacheFile + '.tmp';
-  const isAlreadyWriting = fs.existsSync(tmpPath);
-  const tmp = isAlreadyWriting ? null : fs.createWriteStream(tmpPath);
-  let ok = true;
-
-  proc.stdout.on('data', chunk => {
-    if (!res.writableEnded) res.write(chunk);
-    if (tmp) tmp.write(chunk);
-  });
-  proc.stderr.on('data', () => { });
-  req.on('close', () => { ok = false; proc.kill('SIGKILL'); });
-  proc.on('close', code => {
-    if (tmp) {
-      tmp.end(() => {
-        if (ok && code === 0) {
-          try { fs.renameSync(tmpPath, cacheFile); console.log(`[stream:hls] cached ${id}`); }
-          catch (_) { try { fs.unlinkSync(tmpPath); } catch (_) { } }
-        } else { try { fs.unlinkSync(tmpPath); } catch (_) { } }
-      });
-    }
-    if (!res.writableEnded) res.end();
-  });
-  proc.on('error', e => { if (!res.headersSent) res.status(500).json({ error: e.message }); });
-  console.log(`[stream:hls] piping ${id}`);
-});
-
-// ── /api/prefetch/:id ─────────────────────────────────────────────────
-app.get('/api/prefetch/:id', async (req, res) => {
-  const id = req.params.id;
-  if (!/^[a-zA-Z0-9_-]{11}$/.test(id)) return res.sendStatus(400);
-
-  res.sendStatus(202);
-
-  const cacheFile = path.join(AUDIO_CACHE_DIR, `${id}.m4a`);
-  if (fs.existsSync(cacheFile) && fs.statSync(cacheFile).size > 65536) return;
-  if (_downloading.has(id)) return;
-
-  // FIX #5 (Bug #6): Actually add to _downloading set so the lock works
-  _downloading.add(id);
-
-  try {
-    const { url: audioUrl, isHLS } = await getCachedUrlInfo(id);
-
-    if (!isHLS && audioUrl) {
-      const upstream = await axios({
-        method: 'GET',
-        url: audioUrl,
-        responseType: 'stream',
-        headers: {
-          'User-Agent': 'Mozilla/5.0',
-          'Origin': 'https://www.youtube.com',
-          'Referer': 'https://www.youtube.com/',
-        },
-        timeout: 90000,
-      });
-
-      const tmpPath = cacheFile + '.tmp';
-      const tmp = fs.createWriteStream(tmpPath);
-      upstream.data.pipe(tmp);
-
-      tmp.on('finish', () => {
-        try {
-          fs.renameSync(tmpPath, cacheFile);
-          console.log(`[prefetch:saved] ${id}`);
-        } catch (_) {
-          try { fs.unlinkSync(tmpPath); } catch (_) { }
-        }
-        _downloading.delete(id);
-      });
-
-      tmp.on('error', () => {
-        _downloading.delete(id);
-        try { fs.unlinkSync(tmpPath); } catch (_) { }
-      });
-    } else {
-      _downloading.delete(id);
-    }
-  } catch (e) {
-    _downloading.delete(id);
-    console.warn(`[prefetch] failed for ${id}:`, e.message);
-  }
-});
-
-// ── Health check ───────────────────────────────────────────────────
-app.get('/health', (_req, res) =>
-  res.json({ status: 'ok', ytmusicReady, time: new Date() })
-);
-app.get('/ping', (_, res) => res.send('ok'));
-
-// ── Catch-all: serve index.html ────────────────────────────────────
-app.get('*', (req, res) => {
-  if (!req.path.startsWith('/api')) res.sendFile(path.join(__dirname, 'index.html'));
-});
-
-// FIX #6 (Bug #4): app.listen LAST — after all routes are registered
-app.listen(PORT, () =>
-  console.log(`🎵 Mestify backend running → http://localhost:${PORT}`)
-);
