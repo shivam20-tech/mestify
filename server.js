@@ -4,6 +4,22 @@ require('dns').setDefaultResultOrder('ipv4first');
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
+
+// ── Inject cookies.txt from Railway env var ──────────────────────────
+// On Railway: set COOKIES_B64 = base64-encoded contents of cookies.txt
+// To encode locally (PowerShell):
+//   [Convert]::ToBase64String([IO.File]::ReadAllBytes("d:\mestify\cookies.txt")) | clip
+if (process.env.COOKIES_B64) {
+  try {
+    const cookiesPath = path.join(__dirname, 'cookies.txt');
+    fs.writeFileSync(cookiesPath, Buffer.from(process.env.COOKIES_B64, 'base64').toString('utf8'));
+    console.log('✅ cookies.txt written from COOKIES_B64 env var');
+  } catch (e) {
+    console.warn('⚠️  Failed to write cookies.txt from COOKIES_B64:', e.message);
+  }
+}
+// ────────────────────────────────────────────────────────────────────
 
 const { initCache } = require('./src/config/redis');
 const env = require('./src/config/env');
