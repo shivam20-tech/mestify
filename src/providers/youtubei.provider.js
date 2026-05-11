@@ -1,15 +1,46 @@
 const { Innertube } = require('youtubei.js');
+const fs = require('fs');
+const path = require('path');
 
 let innertube = null;
 
-(async () => {
+// Parse Netscape cookies.txt → cookie header string for Innertube
+function readCookieString() {
+  const cookiesPath = path.join(process.cwd(), 'cookies.txt');
+  if (!fs.existsSync(cookiesPath)) return '';
   try {
-    innertube = await Innertube.create({ retrieve_player: true });
-    console.log('✅ youtubei.js (InnerTube) initialized');
+    return fs.readFileSync(cookiesPath, 'utf8')
+      .split('\n')
+      .filter(l => l.trim() && !l.startsWith('#'))
+      .map(l => {
+        const parts = l.split('\t');
+        return parts.length >= 7 ? `${parts[5]}=${parts[6].trim()}` : null;
+      })
+      .filter(Boolean)
+      .join('; ');
+  } catch (_) { return ''; }
+}
+
+async function init() {
+  try {
+    const cookie = readCookieString();
+    innertube = await Innertube.create({
+      cookie: cookie || undefined,
+      retrieve_player: true,
+    });
+    console.log(`✅ youtubei.js initialized${cookie ? ' (with cookies ✅)' : ' (no cookies)'}`);
   } catch (e) {
     console.warn('⚠️  youtubei.js init failed:', e.message);
   }
-})();
+}
+
+// Called from server.js after new cookies are injected
+async function reinit() {
+  innertube = null;
+  await init();
+}
+
+init();
 
 async function extract(videoId) {
   if (!innertube) throw new Error('youtubei.js not initialized');
@@ -49,5 +80,5 @@ async function extract(videoId) {
   return { url, ext: isWebm ? 'webm' : 'm4a', isHLS: false };
 }
 
-module.exports = { extract };
+module.exports = { extract, reinit };
 
