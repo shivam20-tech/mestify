@@ -358,7 +358,6 @@ function ytdlpGetUrlAndFormat(videoId) {
       '18/bestaudio/best',
       '--print',
       '%(url)s\n%(ext)s\n%(protocol)s\n%(duration)s',
-      '--no-warnings',
       url,
     ];
     const proc = spawn(YTDLP_PATH, args);
@@ -370,7 +369,9 @@ function ytdlpGetUrlAndFormat(videoId) {
 
     let out = '', err = '';
     proc.stdout.on('data', d => { out += d.toString(); });
-    proc.stderr.on('data', () => { });
+    proc.stderr.on('data', d => {
+      err += d.toString();
+    });
     proc.on('close', code => {
       clearTimeout(killer);
       const lines = out.trim().split('\n');
@@ -381,7 +382,7 @@ function ytdlpGetUrlAndFormat(videoId) {
       if (code === 0 && audioUrl?.startsWith('http')) {
         resolve({ url: audioUrl, ext, isHLS: protocol.includes('m3u8'), duration });
       } else {
-        reject(new Error(err || `yt-dlp exited ${code}`));
+        reject(new Error(err.trim || `yt-dlp exited ${code}`));
       }
     });
     proc.on('error', e => { clearTimeout(killer); reject(new Error('yt-dlp not found: ' + e.message)); });
