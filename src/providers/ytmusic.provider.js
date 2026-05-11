@@ -30,15 +30,18 @@ async function playDlSearch(query, limit = 15) {
       limit: limit + 5,
     });
     return results
-      .map(r => ({
-        id: r.id,
-        title: r.title || '',
-        artist: r.channel?.name || 'Unknown',
-        thumbnail: r.thumbnails?.[r.thumbnails.length - 1]?.url
-          || r.thumbnails?.[0]?.url
-          || '',
-      }))
-      .filter(s => s.id && s.title)
+      .map(r => {
+        try {
+          return {
+            id: r.id,
+            title: r.title || '',
+            artist: r.channel?.name || 'Unknown',
+            thumbnail: r.thumbnails?.[r.thumbnails.length - 1]?.url
+              || r.thumbnails?.[0]?.url || '',
+          };
+        } catch (_) { return null; }
+      })
+      .filter(s => s && s.id && s.title)
       .slice(0, limit);
   } catch (e) {
     console.warn('[ytmusic] play-dl search failed:', e.message.slice(0, 60));

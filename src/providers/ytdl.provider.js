@@ -1,6 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 
+// Suppress ytdl-core update check (causes 403 noise in logs)
+process.env.YTDL_NO_UPDATE = '1';
+
 let ytdl = null;
 try {
   ytdl = require('@distube/ytdl-core');
@@ -8,6 +11,7 @@ try {
 } catch (e) {
   console.warn('⚠️  @distube/ytdl-core not available:', e.message);
 }
+
 
 // Parse Netscape cookies.txt → array of {name, value} objects for ytdl agent
 function parseCookies() {
