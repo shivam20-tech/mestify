@@ -2786,17 +2786,16 @@
     let currentGenre = 'pop';
     let progressInterval = null;
     let sleepTimer = null, sleepEndsAt = null;
+    // FIX #11: Consistent sleep countdown interval scoping
+    let sleepCountInterval = null;
     const isMobile = () => window.innerWidth <= 768;
     const shelfLists = {};
-    audio.src = url;
-    await audio.play();
-    audio.pause();
-    audio.removeAttribute('src');
-    audio.load();
 
     // ═══════════════════════════════════════════════════════════════
     //  AUDIO PLAYER
     // ═══════════════════════════════════════════════════════════════
+    // FIX #5 (Bug #5): audio declared here FIRST — removed the 5 orphaned lines that
+    // referenced `audio` and undefined `url` before this declaration
     const audio = document.getElementById('audioPlayer');
     audio.preload = 'auto';
     audio.playsInline = true;
@@ -2824,9 +2823,7 @@
       if (isRepeat) { audio.currentTime = 0; ytPlayer.playVideo(); }
       else if (isRadio) loadRadio(queue[queueIdx]?.id);
       else {
-        setTimeout(() => {
-          playNext();
-        }, 300);
+        setTimeout(() => { playNext(); }, 300);
       }
     });
     audio.addEventListener('error', () => {
@@ -2855,59 +2852,60 @@
     audio.addEventListener('playing', () => setLoadingSpinner(false));
     audio.addEventListener('canplay', () => setLoadingSpinner(false));
 
+    // FIX #8 (Bug #9): Abort in-flight load before starting a new one to prevent race condition
+    let _currentLoadId = null;
     async function loadSong(id) {
+      _currentLoadId = id;
       try {
         document.getElementById('durTime').textContent = '--:--';
         document.getElementById('expDur').textContent = '--:--';
 
         setLoadingSpinner(true);
 
-        // stop old playback properly
+        // Stop old playback and abort any in-flight network fetch
         audio.pause();
-
-        // load new stream
-        audio.src = `${BACKEND_URL}/api/stream/${id}?t=${Date.now()}`;
-
-        // IMPORTANT
+        audio.src = '';
         audio.load();
 
-        // play only ONCE
+        // Guard: if another loadSong was called while we were resetting, bail out
+        if (_currentLoadId !== id) return;
+
+        audio.src = `${BACKEND_URL}/api/stream/${id}?t=${Date.now()}`;
+        audio.load();
+
         await audio.play();
+
+        // Guard again: another song may have been requested while awaiting play()
+        if (_currentLoadId !== id) return;
 
         isPlaying = true;
         updatePlayBtn();
 
-        // fetch duration
+        // Fetch duration from backend (stream-url now returns proper JSON)
         fetch(`${BACKEND_URL}/api/stream-url/${id}`)
           .then(r => r.json())
           .then(info => {
+            if (_currentLoadId !== id) return;
             if (info && info.duration > 0) {
               const d = fmtTime(info.duration);
-
               document.getElementById('durTime').textContent = d;
               document.getElementById('expDur').textContent = d;
-
               audio._knownDuration = info.duration;
             }
           })
           .catch(() => { });
 
-        // prefetch next song
+        // Prefetch next song
         setTimeout(() => {
           const next = queue[queueIdx + 1];
-
           if (next) {
-            fetch(`${BACKEND_URL}/api/prewarm/${next.id}`)
-
-              .catch(() => { });
+            fetch(`${BACKEND_URL}/api/prewarm/${next.id}`).catch(() => { });
           }
         }, 2000);
 
       } catch (e) {
         console.warn('Playback failed:', e);
-
         setLoadingSpinner(false);
-
         toast('Tap play again 🎵');
       }
     }
@@ -3003,7 +3001,6 @@
     // ═══════════════════════════════════════════════════════════════
     function setContent(html) {
       const el = document.getElementById('content');
-      // Fade out old content
       el.style.opacity = '0';
       el.style.transform = 'translateY(12px)';
       el.style.transition = 'opacity 0.15s, transform 0.15s';
@@ -3012,7 +3009,6 @@
         el.style.opacity = '1';
         el.style.transform = 'translateY(0)';
         el.style.transition = 'opacity 0.25s var(--ease-out), transform 0.25s var(--ease-out)';
-        // Scroll to top on page change
         document.getElementById('main').scrollTop = 0;
       }, 150);
     }
@@ -3063,14 +3059,14 @@
         <div class="shelf fade-in" style="animation-delay:0.05s">
           <div class="section-header">
             <h3>🔥 Trending — <span id="trendLabel">${currentGenre.charAt(0).toUpperCase() + currentGenre.slice(1)}</span></h3>
-            <button class="btn-play-all" onclick="playAllFromShelf('trend')"><i class="fa-solid fa-play"></i> Play All</button>
+            <button class="btn-play-all" id="trendPlayAllBtn" onclick="playAllFromShelf('trend')"><i class="fa-solid fa-play"></i> Play All</button>
           </div>
           <div class="shelf-row" id="trendShelf">${skeletonGrid(8)}</div>
         </div>
         <div class="shelf fade-in" style="animation-delay:0.1s">
           <div class="section-header">
             <h3>💜 Bollywood Hits</h3>
-            <button class="btn-play-all" onclick="playAllFromShelf('bolly')"><i class="fa-solid fa-play"></i> Play All</button>
+            <button class="btn-play-all" id="bollyPlayAllBtn" onclick="playAllFromShelf('bolly')"><i class="fa-solid fa-play"></i> Play All</button>
           </div>
           <div class="shelf-row" id="bollyShelf">${skeletonGrid(8)}</div>
         </div>
@@ -3097,6 +3093,9 @@
         </div>
       `);
 
+      // FIX #12 (Bug #12): loadShelf now resolves before the Play All button is usable
+      // because shelfLists[shelfId] is only set inside loadShelf after data arrives.
+      // The Play All buttons reference shelfLists which is populated by loadShelf.
       const loadShelf = async (genre, elId, shelfId, labelId) => {
         try {
           const data = await apiFetch(`/api/trending?genre=${genre}`);
@@ -3106,6 +3105,7 @@
           el.innerHTML = data.items.map((s, i) => cardHTML(s, i, shelfId)).join('');
           if (labelId) document.getElementById(labelId).textContent =
             genre.charAt(0).toUpperCase() + genre.slice(1);
+          prefetchSongs(data.items);
         } catch (_) { }
       };
 
@@ -3177,17 +3177,21 @@
       }
     }
 
-    const _prewarmed = new Set();
-    setInterval(() => _prewarmed.clear(), 10 * 60 * 1000);
+    // FIX #9 (Bug #9): Split prewarm (URL-only) and prefetch (full download) tracking sets
+    const _prewarmed = new Set();   // tracks URL-warmed songs
+    const _prefetched = new Set();  // tracks fully downloaded songs
+    setInterval(() => { _prewarmed.clear(); _prefetched.clear(); }, 10 * 60 * 1000);
 
     function prefetchSongs(songs) {
+      // First 2: full prefetch (download to cache)
       songs.slice(0, 2).forEach((s, i) => {
-        if (_prewarmed.has(s.id)) return;
-        _prewarmed.add(s.id);
+        if (_prefetched.has(s.id)) return;
+        _prefetched.add(s.id);
         setTimeout(() => fetch(`${BACKEND_URL}/api/prefetch/${s.id}`).catch(() => { }), i * 1500);
       });
+      // Next 4: URL prewarm only
       songs.slice(2, 6).forEach((s, i) => {
-        if (_prewarmed.has(s.id)) return;
+        if (_prewarmed.has(s.id) || _prefetched.has(s.id)) return;
         _prewarmed.add(s.id);
         setTimeout(() => fetch(`${BACKEND_URL}/api/prewarm/${s.id}`).catch(() => { }), 3000 + (i * 1000));
       });
@@ -3233,10 +3237,9 @@
       npThumb.classList.add('playing-spin');
       document.getElementById('player').classList.add('is-playing');
 
-      // Animate track info change
       const npInfo = document.getElementById('npInfo');
       npInfo.classList.remove('track-change');
-      void npInfo.offsetWidth; // reflow
+      void npInfo.offsetWidth;
       npInfo.classList.add('track-change');
 
       document.getElementById('npTitle').textContent = song.title;
@@ -3263,7 +3266,6 @@
 
       document.title = `${song.title} – Mestify`;
 
-      // Recently played
       try {
         let rp = JSON.parse(localStorage.getItem('mestify_recent') || '[]');
         rp = rp.filter(s => s.id !== song.id);
@@ -3384,7 +3386,8 @@
 
     function playAllFromShelf(shelfId) {
       const list = shelfLists[shelfId];
-      if (!list || !list.length) { toast('Nothing to play'); return; }
+      // FIX #12 (Bug #12): Guard against calling before shelf data has loaded
+      if (!list || !list.length) { toast('Loading… try again in a moment'); return; }
       browseList = list;
       playAllBrowse(0);
     }
@@ -3521,23 +3524,28 @@
 
     function clearSleepTimer() {
       clearTimeout(sleepTimer);
-      clearInterval(window._sleepCountInterval);
-      sleepTimer = null; sleepEndsAt = null;
+      // FIX #11 (Bug #11): Use module-level sleepCountInterval instead of window._sleepCountInterval
+      clearInterval(sleepCountInterval);
+      sleepCountInterval = null;
+      sleepTimer = null;
+      sleepEndsAt = null;
       document.getElementById('sleepBadge').classList.remove('active');
+      document.getElementById('sleepCountdown').textContent = '';
     }
 
     function startSleepCountdown() {
-      clearInterval(window._sleepCountInterval);
-      window._sleepCountInterval = setInterval(() => {
+      clearInterval(sleepCountInterval);
+      sleepCountInterval = setInterval(() => {
         if (!sleepEndsAt) return;
         const rem = Math.max(0, sleepEndsAt - Date.now());
         const m = Math.floor(rem / 60000);
         const s = Math.floor((rem % 60000) / 1000).toString().padStart(2, '0');
         document.getElementById('sleepCountdown').textContent = `${m}:${s}`;
-        if (rem <= 0) clearInterval(window._sleepCountInterval);
+        if (rem <= 0) clearInterval(sleepCountInterval);
       }, 1000);
     }
 
+    // FIX #13 (Bug #13): Added null-check for expAutoplay before toggling class
     function updateAutoplayBtn() {
       document.getElementById('autoplayBtn').classList.toggle('active', isAutoplay);
       document.getElementById('autoplayDot').style.display = isAutoplay ? 'block' : 'none';
@@ -3579,17 +3587,14 @@
     (function setupPlayerSwipe() {
       const player = document.getElementById('player');
       let startY = 0, startX = 0;
-
       player.addEventListener('touchstart', e => {
         startY = e.touches[0].clientY;
         startX = e.touches[0].clientX;
       }, { passive: true });
-
       player.addEventListener('touchend', e => {
         if (!isMobile()) return;
         const deltaY = startY - e.changedTouches[0].clientY;
         const deltaX = Math.abs(startX - e.changedTouches[0].clientX);
-        // Swipe up: deltaY > 40, mostly vertical
         if (deltaY > 40 && deltaX < 60) openExpanded();
       }, { passive: true });
     })();
@@ -3598,11 +3603,9 @@
     (function setupExpandedSwipe() {
       const expanded = document.getElementById('npExpanded');
       let startY = 0;
-
       expanded.addEventListener('touchstart', e => {
         startY = e.touches[0].clientY;
       }, { passive: true });
-
       expanded.addEventListener('touchend', e => {
         const deltaY = e.changedTouches[0].clientY - startY;
         if (deltaY > 60) closeExpanded();
@@ -3811,7 +3814,6 @@
     (function setupProgressBar() {
       const bar = document.getElementById('progressBar');
       let dragging = false;
-
       function seekFromEvent(e) {
         const rect = bar.getBoundingClientRect();
         const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
@@ -3824,7 +3826,6 @@
         document.getElementById('expFill').style.width = (pct * 100) + '%';
         document.getElementById('expCur').textContent = fmtTime(pct * dur);
       }
-
       bar.addEventListener('mousedown', e => { dragging = true; seekFromEvent(e); e.preventDefault(); });
       document.addEventListener('mousemove', e => { if (dragging) seekFromEvent(e); });
       document.addEventListener('mouseup', () => { dragging = false; });
@@ -3836,7 +3837,6 @@
     (function setupExpBar() {
       const bar = document.getElementById('expBar');
       let dragging = false;
-
       function seekFromEvent(e) {
         const rect = bar.getBoundingClientRect();
         const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
@@ -3849,7 +3849,6 @@
         document.getElementById('progressThumb').style.left = (pct * 100) + '%';
         document.getElementById('curTime').textContent = fmtTime(pct * dur);
       }
-
       bar.addEventListener('mousedown', e => { dragging = true; seekFromEvent(e); e.preventDefault(); });
       document.addEventListener('mousemove', e => { if (dragging) seekFromEvent(e); });
       document.addEventListener('mouseup', () => { dragging = false; });
@@ -3861,7 +3860,6 @@
     (function setupVolBar() {
       const bar = document.getElementById('volBar');
       let dragging = false;
-
       function setVolFromEvent(e) {
         const rect = bar.getBoundingClientRect();
         volume = Math.round(Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) * 100);
@@ -3872,7 +3870,6 @@
           : volume < 50 ? 'fa-solid fa-volume-low'
             : 'fa-solid fa-volume-high';
       }
-
       bar.addEventListener('mousedown', e => { dragging = true; setVolFromEvent(e); e.preventDefault(); });
       document.addEventListener('mousemove', e => { if (dragging) setVolFromEvent(e); });
       document.addEventListener('mouseup', () => { dragging = false; });

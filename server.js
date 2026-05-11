@@ -7,6 +7,8 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { spawn } = require('child_process');
+
+// FIX #14: Use YTDLP_PATH constant consistently everywhere
 const YTDLP_PATH = '/usr/local/bin/yt-dlp';
 
 // ═══════════════════════════════════════════════════════════════
@@ -15,7 +17,6 @@ const YTDLP_PATH = '/usr/local/bin/yt-dlp';
 const AUDIO_CACHE_DIR = path.join(os.tmpdir(), 'mestify_audio');
 if (!fs.existsSync(AUDIO_CACHE_DIR)) fs.mkdirSync(AUDIO_CACHE_DIR, { recursive: true });
 
-// FIX #5: Increased maxFiles from 30 to 100 to avoid constant re-downloads
 function cleanAudioCache(maxFiles = 100) {
   try {
     const files = fs.readdirSync(AUDIO_CACHE_DIR)
@@ -52,26 +53,11 @@ let ytmusicReady = false;
     console.error('❌ ytmusic-api init failed:', e.message);
   }
 })();
-async function forceAudioResume() {
-  try {
-    if (audioEl.paused) {
-      await audioEl.play();
-    }
 
-    if (audioContext && audioContext.state === 'suspended') {
-      await audioContext.resume();
-    }
-  } catch (e) {
-    console.log('resume blocked:', e);
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-//  @distube/ytdl-core  (fallback)
-// ═══════════════════════════════════════════════════════════════
+// FIX #1 (Bug #3): Actually require ytdl-core so the fallback works
 let ytdl = null;
 try {
-
+  ytdl = require('@distube/ytdl-core');
   console.log('✅ @distube/ytdl-core loaded (fallback)');
 } catch (e) {
   console.warn('⚠️  ytdl-core not available:', e.message);
@@ -229,20 +215,12 @@ app.get('/api/suggest', async (req, res) => {
     res.json({ suggestions: [] });
   }
 });
+
 app.get('/python-check', async (req, res) => {
   const { exec } = require('child_process');
-
   exec('python3 --version', (err, stdout, stderr) => {
-    if (err) {
-      return res.json({
-        error: err.message,
-        stderr
-      });
-    }
-
-    res.json({
-      python: stdout
-    });
+    if (err) return res.json({ error: err.message, stderr });
+    res.json({ python: stdout });
   });
 });
 
@@ -286,7 +264,6 @@ app.get('/api/trending', async (req, res) => {
 
 app.get('/api/related/:videoId', async (req, res) => {
   const { videoId } = req.params;
-  // FIX #4: Sanitize query params — strip non-printable/control chars
   const rawTitle = String(req.query.title || '').replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200);
   const rawArtist = String(req.query.artist || '').replace(/[\x00-\x1f\x7f]/g, '').slice(0, 100);
   try {
@@ -356,38 +333,23 @@ app.get('/api/related/:videoId', async (req, res) => {
 //  STREAMING — yt-dlp PRIMARY  +  ytdl-core FALLBACK
 // ═══════════════════════════════════════════════════════════════
 
-// FIX #6: yt-dlp subprocess with proper manual timeout via AbortController / kill timer
 function ytdlpGetUrlAndFormat(videoId) {
   return new Promise((resolve, reject) => {
-
     const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
-
     const args = [
-      '--cookies',
-      'cookies.txt',
-
-      '--user-agent',
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123 Safari/537.36',
-
-      '--extractor-args',
-      'youtube:player_client=web',
-
+      '--cookies', 'cookies.txt',
+      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123 Safari/537.36',
+      '--extractor-args', 'youtube:player_client=web',
       '--no-playlist',
-
       '--geo-bypass',
-
       '--no-check-certificates',
-
-      '-f',
-      'bestaudio/best',
-
+      '-f', 'bestaudio/best',
       '--get-url',
-
-      ytUrl
+      ytUrl,
     ];
 
-    const proc = spawn('yt-dlp', args);
-
+    // FIX #14: Use YTDLP_PATH constant instead of bare 'yt-dlp'
+    const proc = spawn(YTDLP_PATH, args);
     let out = '';
     let err = '';
 
@@ -396,31 +358,15 @@ function ytdlpGetUrlAndFormat(videoId) {
       reject(new Error('yt-dlp timeout'));
     }, 15000);
 
-    proc.stdout.on('data', d => {
-      out += d.toString();
-    });
-
-    proc.stderr.on('data', d => {
-      err += d.toString();
-    });
+    proc.stdout.on('data', d => { out += d.toString(); });
+    proc.stderr.on('data', d => { err += d.toString(); });
 
     proc.on('close', code => {
-
       clearTimeout(killer);
-
       const url = out.trim();
-
       if (code === 0 && url.startsWith('http')) {
-
-        resolve({
-          url,
-          ext: 'm4a',
-          isHLS: false,
-          duration: 0
-        });
-
+        resolve({ url, ext: 'm4a', isHLS: false, duration: 0 });
       } else {
-
         reject(new Error(err || `yt-dlp exited ${code}`));
       }
     });
@@ -429,10 +375,10 @@ function ytdlpGetUrlAndFormat(videoId) {
       clearTimeout(killer);
       reject(e);
     });
-
   });
 }
 
+// FIX #2 (Bug #7): ytdlGetUrlAndFormat is now actually called as fallback
 async function ytdlGetUrlAndFormat(videoId) {
   if (!ytdl) throw new Error('ytdl-core not loaded');
   const info = await ytdl.getInfo(videoId);
@@ -442,7 +388,7 @@ async function ytdlGetUrlAndFormat(videoId) {
   return { url: format.url, ext: format.container || 'mp4', isHLS: format.isHLS || false, duration };
 }
 
-// FIX #1: urlCache with proper TTL-aware eviction + age-based cleanup
+// FIX #3: urlCache with TTL-aware eviction
 const urlCache = new Map();
 function evictExpiredUrlCache() {
   const now = Date.now();
@@ -450,19 +396,23 @@ function evictExpiredUrlCache() {
     if (v.expiresAt <= now) urlCache.delete(k);
   }
 }
-setInterval(evictExpiredUrlCache, 30 * 60 * 1000); // run every 30min
+setInterval(evictExpiredUrlCache, 30 * 60 * 1000);
 
+// FIX #2 (Bug #7): getCachedUrlInfo now chains to ytdl-core on yt-dlp failure
 async function getCachedUrlInfo(videoId) {
   const cached = urlCache.get(videoId);
   if (cached && cached.expiresAt > Date.now()) return cached;
 
   let info;
-  info = await ytdlpGetUrlAndFormat(videoId);
+  try {
+    info = await ytdlpGetUrlAndFormat(videoId);
+  } catch (e) {
+    console.warn('[yt-dlp] failed, trying ytdl-core fallback:', e.message);
+    info = await ytdlGetUrlAndFormat(videoId);
+  }
 
   urlCache.set(videoId, { ...info, expiresAt: Date.now() + 12 * 60 * 60 * 1000 });
-  // FIX #1: Evict by size after adding
   if (urlCache.size > 200) {
-    // Remove oldest (first inserted) entries first
     for (const k of urlCache.keys()) {
       urlCache.delete(k);
       if (urlCache.size <= 180) break;
@@ -471,7 +421,6 @@ async function getCachedUrlInfo(videoId) {
   return info;
 }
 
-// FIX #10: serveCachedFile — fix NaN end-range when rawEnd is empty string
 function serveCachedFile(cacheFile, req, res) {
   const stat = fs.statSync(cacheFile);
   const total = stat.size;
@@ -479,7 +428,6 @@ function serveCachedFile(cacheFile, req, res) {
   if (range) {
     const parts = range.replace(/bytes=/, '').split('-');
     const start = parseInt(parts[0], 10);
-    // FIX #10: Use `|| total - 1` so empty string becomes total-1
     const end = parseInt(parts[1]) || total - 1;
     const safeEnd = Math.min(end, total - 1);
     const safeStart = Math.max(0, start);
@@ -507,62 +455,17 @@ function serveCachedFile(cacheFile, req, res) {
 }
 
 // ── /api/stream-url/:id ────────────────────────────────────────────
+// FIX #4 (Bug #2): Route now properly resolves URL and returns JSON — cacheFile is no longer referenced
 app.get('/api/stream-url/:id', async (req, res) => {
   const id = req.params.id;
   if (!/^[a-zA-Z0-9_-]{11}$/.test(id)) return res.status(400).json({ error: 'Invalid video ID' });
   try {
-
-    // anti-rate-limit delay
-    await new Promise(r => setTimeout(r, 1500));
-
-    const { url: audioUrl, isHLS } = await getCachedUrlInfo(id);
-
-    if (!isHLS && audioUrl) {
-
-      const upstream = await axios({
-        method: 'GET',
-        url: audioUrl,
-        responseType: 'stream',
-        headers: {
-          'User-Agent': 'Mozilla/5.0',
-          'Origin': 'https://www.youtube.com',
-          'Referer': 'https://www.youtube.com/',
-        },
-        timeout: 90000,
-      });
-
-      const tmpPath = cacheFile + '.tmp';
-
-      const tmp = fs.createWriteStream(tmpPath);
-
-      upstream.data.pipe(tmp);
-
-      tmp.on('finish', () => {
-        try {
-          fs.renameSync(tmpPath, cacheFile);
-          console.log(`[prefetch:saved] ${id}`);
-        } catch (_) {
-          try { fs.unlinkSync(tmpPath); } catch (_) { }
-        }
-
-        _downloading.delete(id);
-      });
-
-      tmp.on('error', () => {
-        _downloading.delete(id);
-
-        try { fs.unlinkSync(tmpPath); } catch (_) { }
-      });
-
-    } else {
-      _downloading.delete(id);
-    }
-
+    await new Promise(r => setTimeout(r, 1500)); // anti-rate-limit delay
+    const { url: audioUrl, isHLS, duration } = await getCachedUrlInfo(id);
+    return res.json({ url: audioUrl, isHLS, duration });
   } catch (e) {
-
-    _downloading.delete(id);
-
-    console.warn(`[prefetch] failed for ${id}:`, e.message);
+    console.error('[stream-url] failed:', e.message);
+    return res.status(500).json({ error: 'Could not resolve audio URL' });
   }
 });
 
@@ -575,7 +478,6 @@ app.get('/api/prewarm/:id', (req, res) => {
   if (!cached || cached.expiresAt <= Date.now()) {
     getCachedUrlInfo(id).catch(() => { });
   }
-
 });
 
 // ── /api/stream/:id ───────────────────────────────────────────────────
@@ -594,6 +496,7 @@ app.get('/api/stream/:id', async (req, res) => {
     }
     try { fs.unlinkSync(cacheFile); } catch (_) { }
   }
+
   if (_downloading.has(id)) {
     return res.status(429).end();
   }
@@ -629,9 +532,7 @@ app.get('/api/stream/:id', async (req, res) => {
       console.log(`[stream:direct] ${id} ${status} ${rangeHeader || 'full'}`);
 
       if (!rangeHeader) {
-        // FIX #3: Use a per-song lock to prevent concurrent write races
         const tmpPath = cacheFile + '.tmp';
-        // Only save if nobody else is writing this file right now
         const isAlreadyWriting = fs.existsSync(tmpPath);
         const tmp = isAlreadyWriting ? null : fs.createWriteStream(tmpPath);
         let alive = true;
@@ -667,36 +568,30 @@ app.get('/api/stream/:id', async (req, res) => {
   }
 
   // 4. Fallback: pipe yt-dlp + tee to cache
-  // FIX #7: Added --no-playlist to prevent playlist downloads
-  // FIX #8: Detect actual audio format and set correct Content-Type
   const ytUrl = `https://www.youtube.com/watch?v=${id}`;
   const args = [
     '--cookies', 'cookies.txt',
-    '--extractor-args',
-    'youtube:player_client=android',
+    '--extractor-args', 'youtube:player_client=android',
     '--no-playlist',
     '--quiet',
     '--no-progress',
-    '-f',
-    '18/bestaudio/best',
+    '-f', '18/bestaudio/best',
     '--no-warnings',
-    '-o',
-    '-',
+    '-o', '-',
     ytUrl,
   ];
+
   let proc;
+  // FIX #14: Use YTDLP_PATH constant
   try { proc = spawn(YTDLP_PATH, args); }
   catch (e) { if (!res.headersSent) res.status(500).json({ error: 'yt-dlp not found' }); return; }
 
-  // FIX #8: Use audio/webm as it's the most common format yt-dlp outputs;
-  // browsers handle it fine and it's more accurate than audio/mp4 for opus streams
   res.writeHead(200, {
     'Content-Type': 'audio/mp4',
     'Transfer-Encoding': 'chunked',
     'Cache-Control': 'no-cache',
   });
 
-  // FIX #3: Prevent concurrent writes to the same tmp file
   const tmpPath = cacheFile + '.tmp';
   const isAlreadyWriting = fs.existsSync(tmpPath);
   const tmp = isAlreadyWriting ? null : fs.createWriteStream(tmpPath);
@@ -724,47 +619,74 @@ app.get('/api/stream/:id', async (req, res) => {
 });
 
 // ── /api/prefetch/:id ─────────────────────────────────────────────────
+app.get('/api/prefetch/:id', async (req, res) => {
+  const id = req.params.id;
+  if (!/^[a-zA-Z0-9_-]{11}$/.test(id)) return res.sendStatus(400);
+
+  res.sendStatus(202);
+
+  const cacheFile = path.join(AUDIO_CACHE_DIR, `${id}.m4a`);
+  if (fs.existsSync(cacheFile) && fs.statSync(cacheFile).size > 65536) return;
+  if (_downloading.has(id)) return;
+
+  // FIX #5 (Bug #6): Actually add to _downloading set so the lock works
+  _downloading.add(id);
+
+  try {
+    const { url: audioUrl, isHLS } = await getCachedUrlInfo(id);
+
+    if (!isHLS && audioUrl) {
+      const upstream = await axios({
+        method: 'GET',
+        url: audioUrl,
+        responseType: 'stream',
+        headers: {
+          'User-Agent': 'Mozilla/5.0',
+          'Origin': 'https://www.youtube.com',
+          'Referer': 'https://www.youtube.com/',
+        },
+        timeout: 90000,
+      });
+
+      const tmpPath = cacheFile + '.tmp';
+      const tmp = fs.createWriteStream(tmpPath);
+      upstream.data.pipe(tmp);
+
+      tmp.on('finish', () => {
+        try {
+          fs.renameSync(tmpPath, cacheFile);
+          console.log(`[prefetch:saved] ${id}`);
+        } catch (_) {
+          try { fs.unlinkSync(tmpPath); } catch (_) { }
+        }
+        _downloading.delete(id);
+      });
+
+      tmp.on('error', () => {
+        _downloading.delete(id);
+        try { fs.unlinkSync(tmpPath); } catch (_) { }
+      });
+    } else {
+      _downloading.delete(id);
+    }
+  } catch (e) {
+    _downloading.delete(id);
+    console.warn(`[prefetch] failed for ${id}:`, e.message);
+  }
+});
 
 // ── Health check ───────────────────────────────────────────────────
 app.get('/health', (_req, res) =>
   res.json({ status: 'ok', ytmusicReady, time: new Date() })
 );
 app.get('/ping', (_, res) => res.send('ok'));
+
 // ── Catch-all: serve index.html ────────────────────────────────────
 app.get('*', (req, res) => {
   if (!req.path.startsWith('/api')) res.sendFile(path.join(__dirname, 'index.html'));
 });
 
+// FIX #6 (Bug #4): app.listen LAST — after all routes are registered
 app.listen(PORT, () =>
   console.log(`🎵 Mestify backend running → http://localhost:${PORT}`)
 );
-app.get('/api/prefetch/:id', async (req, res) => {
-  const id = req.params.id;
-
-  if (!/^[a-zA-Z0-9_-]{11}$/.test(id)) {
-    return res.sendStatus(400);
-  }
-
-  res.sendStatus(202);
-
-  const cacheFile = path.join(AUDIO_CACHE_DIR, `${id}.m4a`);
-
-  if (fs.existsSync(cacheFile) && fs.statSync(cacheFile).size > 65536) {
-    return;
-  }
-
-  if (_downloading.has(id)) {
-    return;
-  }
-
-  _downloading.add(id);
-
-  try {
-    await getCachedUrlInfo(id);
-    console.log(`[prefetch] warmed ${id}`);
-  } catch (e) {
-    console.warn(`[prefetch] failed for ${id}:`, e.message);
-  } finally {
-    _downloading.delete(id);
-  }
-});
