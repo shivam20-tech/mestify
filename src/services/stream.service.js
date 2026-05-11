@@ -49,11 +49,34 @@ function releaseSlot() {
 // ── In-progress download lock ────────────────────────────────────────
 const _downloading = new Set();
 
+// ── Dead video cache ─────────────────────────────────────────────────
+// Tracks video IDs that are genuinely unavailable (geo-blocked, Content ID, etc.)
+// Prevents hammering all providers repeatedly for the same dead video.
+const _deadVideos = new Map(); // videoId → expiresAt
+const DEAD_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+
+function isDeadVideo(id) {
+  const exp = _deadVideos.get(id);
+  if (!exp) return false;
+  if (exp < Date.now()) { _deadVideos.delete(id); return false; }
+  return true;
+}
+
+function markDead(id, reason) {
+  _deadVideos.set(id, Date.now() + DEAD_TTL_MS);
+  console.warn(`[stream] 🚫 ${id} marked unavailable for 6h (${reason})`);
+}
+
 // ── Redis cache key ──────────────────────────────────────────────────
 const cacheKey = id => `stream:url:${id}`;
 
-// ── Resolve stream URL (cache → yt-dlp → ytdl-core) ─────────────────
+// ── Resolve stream URL (cache → yt-dlp → youtubei.js → ytdl-core) ────
 async function resolveStreamUrl(videoId) {
+  // Fast-fail: skip known unavailable videos
+  if (isDeadVideo(videoId)) {
+    throw new Error(`Video unavailable (cached 6h): ${videoId}`);
+  }
+
   const cache = getCache();
 
   // 1. Cache hit
@@ -94,6 +117,18 @@ async function resolveStreamUrl(videoId) {
 
     await cache.setex(cacheKey(videoId), env.STREAM_URL_TTL_SEC, JSON.stringify(info));
     return info;
+  } catch (err) {
+    // Cache unavailable/geo-blocked videos to stop retrying them
+    const msg = err.message || '';
+    if (
+      msg.includes('Video unavailable') ||
+      msg.includes('Sign in to confirm') ||
+      msg.includes('This content isn') ||
+      msg.includes('No streaming_data')
+    ) {
+      markDead(videoId, msg.slice(0, 60));
+    }
+    throw err;
   } finally {
     releaseSlot();
   }

@@ -1,6 +1,17 @@
 require('dotenv').config();
 require('dns').setDefaultResultOrder('ipv4first');
 
+// ── Suppress youtubei.js internal log spam ───────────────────────────
+// [YOUTUBEJS][Text] / [YOUTUBEJS][Parser] are harmless internal warnings
+// that clutter logs. Filter them out globally before any module loads.
+const _origWarn  = console.warn.bind(console);
+const _origError = console.error.bind(console);
+const _ytjsNoise = /^\[YOUTUBEJS\]\[(Text|Parser)\]/;
+console.warn  = (...a) => { if (typeof a[0] === 'string' && _ytjsNoise.test(a[0])) return; _origWarn(...a); };
+console.error = (...a) => { if (typeof a[0] === 'string' && _ytjsNoise.test(a[0])) return; _origError(...a); };
+// ─────────────────────────────────────────────────────────────────────
+
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
