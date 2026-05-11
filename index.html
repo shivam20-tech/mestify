@@ -2859,71 +2859,80 @@
     audio.addEventListener('playing', () => setLoadingSpinner(false));
     audio.addEventListener('canplay', () => setLoadingSpinner(false));
 
-    // FIX #8 (Bug #9): Abort in-flight load before starting a new one to prevent race condition
+    // Pre-resolve stream URL before touching audio — prevents double-skip race condition
     let _currentLoadId = null;
+    let _skipGuard = false;
+
     async function loadSong(id) {
       _currentLoadId = id;
+      _skipGuard = false;
       try {
         document.getElementById('durTime').textContent = '--:--';
         document.getElementById('expDur').textContent = '--:--';
-
         setLoadingSpinner(true);
 
-        // Stop old playback and abort any in-flight network fetch
         audio.pause();
         audio.src = '';
         audio.load();
 
-        // Guard: if another loadSong was called while we were resetting, bail out
         if (_currentLoadId !== id) return;
 
-        audio.src = `${BACKEND_URL}/api/stream/${id}?t=${Date.now()}`;
-        audio.load();
+        // Step 1: Pre-resolve URL (JSON) — never load a 500 into audio element
+        let resolvedUrl;
+        try {
+          const r = await fetch(`${BACKEND_URL}/api/stream-url/${id}`);
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const info = await r.json();
+          resolvedUrl = info.url;
+          if (info.duration > 0) {
+            const d = fmtTime(info.duration);
+            document.getElementById('durTime').textContent = d;
+            document.getElementById('expDur').textContent = d;
+            audio._knownDuration = info.duration;
+          }
+        } catch (urlErr) {
+          console.warn(`[player] Stream unavailable for ${id}:`, urlErr.message);
+          if (_currentLoadId !== id) return;
+          toast('Track unavailable — skipping…');
+          setLoadingSpinner(false);
+          setTimeout(() => playNext(), 600);
+          return;
+        }
 
+        if (_currentLoadId !== id) return;
+
+        // Step 2: Set direct URL — not the proxy endpoint
+        audio.src = resolvedUrl;
+        audio.load();
         await audio.play();
 
-        // Guard again: another song may have been requested while awaiting play()
         if (_currentLoadId !== id) return;
 
         isPlaying = true;
         updatePlayBtn();
 
-        // Fetch duration from backend (stream-url now returns proper JSON)
-        fetch(`${BACKEND_URL}/api/stream-url/${id}`)
-          .then(r => r.json())
-          .then(info => {
-            if (_currentLoadId !== id) return;
-            if (info && info.duration > 0) {
-              const d = fmtTime(info.duration);
-              document.getElementById('durTime').textContent = d;
-              document.getElementById('expDur').textContent = d;
-              audio._knownDuration = info.duration;
-            }
-          })
-          .catch(() => { });
-
-        // Prefetch next song
+        // Prefetch next
         setTimeout(() => {
           const next = queue[queueIdx + 1];
-          if (next) {
-            fetch(`${BACKEND_URL}/api/prewarm/${next.id}`).catch(() => { });
-          }
+          if (next) fetch(`${BACKEND_URL}/api/prewarm/${next.id}`).catch(() => {});
         }, 2000);
 
       } catch (e) {
+        if (_currentLoadId !== id) return;
+        if (e.name === 'AbortError') return; // normal — next song interrupted
         console.warn('Playback failed:', e);
         setLoadingSpinner(false);
-        // If server returned 500, skip this track — it's unavailable
-        if (e.message && (e.message.includes('500') || e.message.includes('unavailable'))) {
-          toast('Track unavailable — skipping…');
-          setTimeout(() => playNext(), 800);
-        } else {
-          toast('Tap play again 🎵');
+        if (!_skipGuard) {
+          _skipGuard = true;
+          toast('Playback error — skipping…');
+          setTimeout(() => playNext(), 600);
         }
       }
     }
 
+
     async function apiFetch(path) {
+
       const r = await fetch(BACKEND_URL + path);
       if (!r.ok) throw new Error(await r.text());
       return r.json();
