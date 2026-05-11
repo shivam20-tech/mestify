@@ -2852,6 +2852,16 @@
       setLoadingSpinner(true);
       audio.src = `${BACKEND_URL}/api/stream/${id}?t=${Date.now()}`;
       const pp = audio.play();
+      audio.muted = false;
+
+      audio.play().catch(async () => {
+        try {
+          await audio.load();
+          await audio.play();
+        } catch (e) {
+          console.warn('Autoplay resume failed:', e);
+        }
+      });
       if (pp) pp.catch(e => { if (e.name !== 'AbortError') { console.warn('[play]', e.message); setLoadingSpinner(false); } });
       fetch(`${BACKEND_URL}/api/stream-url/${id}`)
         .then(r => r.json())
