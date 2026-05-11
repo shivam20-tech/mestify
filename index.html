@@ -2880,9 +2880,13 @@
         // Pre-check: verify stream is available BEFORE loading into audio element
         // (prevents browser trying to play a 500 response)
         try {
-          const check = await fetch(`${BACKEND_URL}/api/stream-url/${id}`);
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 30000);
+          const check = await fetch(`${BACKEND_URL}/api/stream-url/${id}`, { signal: ctrl.signal });
+          clearTimeout(timer);
           if (!check.ok) throw new Error(`HTTP ${check.status}`);
           const info = await check.json();
+
           // Set duration if available
           if (info.duration > 0) {
             const d = fmtTime(info.duration);

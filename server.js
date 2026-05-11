@@ -29,14 +29,14 @@ function _handlePlayerError(err, label) {
 
 process.on('uncaughtException', (err) => {
   if (_handlePlayerError(err, 'uncaughtException')) return;
-  console.error('💥 Uncaught exception:', err);
-  process.exit(1);
+  console.error('💥 Uncaught exception (kept alive):', err.message || err);
+  // DO NOT exit — keep server running. Individual requests fail, not the whole server.
 });
 
 process.on('unhandledRejection', (reason) => {
   if (_handlePlayerError(reason, 'unhandledRejection')) return;
-  console.error('💥 Unhandled rejection:', reason);
-  // Do NOT exit — unhandled rejections are often recoverable
+  console.error('💥 Unhandled rejection (kept alive):', reason?.message || reason);
+  // DO NOT exit
 });
 // ─────────────────────────────────────────────────────────────────────
 
