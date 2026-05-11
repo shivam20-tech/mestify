@@ -2789,8 +2789,10 @@
     const isMobile = () => window.innerWidth <= 768;
     const shelfLists = {};
     audio.src = url;
+    await audio.play();
+    audio.pause();
+    audio.removeAttribute('src');
     audio.load();
-    audio.play();
 
     // ═══════════════════════════════════════════════════════════════
     //  AUDIO PLAYER
@@ -2896,6 +2898,7 @@
 
           if (next) {
             fetch(`${BACKEND_URL}/api/prewarm/${next.id}`)
+
               .catch(() => { });
           }
         }, 2000);

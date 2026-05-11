@@ -359,46 +359,77 @@ app.get('/api/related/:videoId', async (req, res) => {
 // FIX #6: yt-dlp subprocess with proper manual timeout via AbortController / kill timer
 function ytdlpGetUrlAndFormat(videoId) {
   return new Promise((resolve, reject) => {
-    const url = `https://www.youtube.com/watch?v=${videoId}`;
+
+    const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
+
     const args = [
-      '--cookies', 'cookies.txt',
+      '--cookies',
+      'cookies.txt',
+
+      '--user-agent',
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123 Safari/537.36',
+
       '--extractor-args',
-      'youtube:player_client=android',
+      'youtube:player_client=web',
+
       '--no-playlist',
-      '--quiet',
-      '--no-progress',
+
+      '--geo-bypass',
+
+      '--no-check-certificates',
+
       '-f',
-      '18/bestaudio/best',
-      '--print',
-      '%(url)s\n%(ext)s\n%(protocol)s\n%(duration)s',
-      url,
+      'bestaudio/best',
+
+      '--get-url',
+
+      ytUrl
     ];
-    const proc = spawn(YTDLP_PATH, args);
-    // FIX #6: Manual 20s kill timer since spawn() ignores timeout option
+
+    const proc = spawn('yt-dlp', args);
+
+    let out = '';
+    let err = '';
+
     const killer = setTimeout(() => {
       proc.kill('SIGKILL');
-      reject(new Error('yt-dlp timed out after 20s'));
-    }, 120000);
+      reject(new Error('yt-dlp timeout'));
+    }, 15000);
 
-    let out = '', err = '';
-    proc.stdout.on('data', d => { out += d.toString(); });
+    proc.stdout.on('data', d => {
+      out += d.toString();
+    });
+
     proc.stderr.on('data', d => {
       err += d.toString();
     });
+
     proc.on('close', code => {
+
       clearTimeout(killer);
-      const lines = out.trim().split('\n');
-      const audioUrl = lines[0]?.trim();
-      const ext = lines[1]?.trim() || 'mp4';
-      const protocol = lines[2]?.trim() || '';
-      const duration = parseFloat(lines[3]?.trim()) || 0;
-      if (code === 0 && audioUrl?.startsWith('http')) {
-        resolve({ url: audioUrl, ext, isHLS: protocol.includes('m3u8'), duration });
+
+      const url = out.trim();
+
+      if (code === 0 && url.startsWith('http')) {
+
+        resolve({
+          url,
+          ext: 'm4a',
+          isHLS: false,
+          duration: 0
+        });
+
       } else {
-        reject(new Error(err.trim() || `yt-dlp exited ${code}`));
+
+        reject(new Error(err || `yt-dlp exited ${code}`));
       }
     });
-    proc.on('error', e => { clearTimeout(killer); reject(new Error('yt-dlp not found: ' + e.message)); });
+
+    proc.on('error', e => {
+      clearTimeout(killer);
+      reject(e);
+    });
+
   });
 }
 
@@ -428,7 +459,7 @@ async function getCachedUrlInfo(videoId) {
   let info;
   info = await ytdlpGetUrlAndFormat(videoId);
 
-  urlCache.set(videoId, { ...info, expiresAt: Date.now() + 4 * 60 * 60 * 1000 });
+  urlCache.set(videoId, { ...info, expiresAt: Date.now() + 12 * 60 * 60 * 1000 });
   // FIX #1: Evict by size after adding
   if (urlCache.size > 200) {
     // Remove oldest (first inserted) entries first
@@ -480,10 +511,58 @@ app.get('/api/stream-url/:id', async (req, res) => {
   const id = req.params.id;
   if (!/^[a-zA-Z0-9_-]{11}$/.test(id)) return res.status(400).json({ error: 'Invalid video ID' });
   try {
-    const { url, ext, isHLS, duration } = await getCachedUrlInfo(id);
-    res.json({ url, ext, isHLS, duration });
+
+    // anti-rate-limit delay
+    await new Promise(r => setTimeout(r, 1500));
+
+    const { url: audioUrl, isHLS } = await getCachedUrlInfo(id);
+
+    if (!isHLS && audioUrl) {
+
+      const upstream = await axios({
+        method: 'GET',
+        url: audioUrl,
+        responseType: 'stream',
+        headers: {
+          'User-Agent': 'Mozilla/5.0',
+          'Origin': 'https://www.youtube.com',
+          'Referer': 'https://www.youtube.com/',
+        },
+        timeout: 90000,
+      });
+
+      const tmpPath = cacheFile + '.tmp';
+
+      const tmp = fs.createWriteStream(tmpPath);
+
+      upstream.data.pipe(tmp);
+
+      tmp.on('finish', () => {
+        try {
+          fs.renameSync(tmpPath, cacheFile);
+          console.log(`[prefetch:saved] ${id}`);
+        } catch (_) {
+          try { fs.unlinkSync(tmpPath); } catch (_) { }
+        }
+
+        _downloading.delete(id);
+      });
+
+      tmp.on('error', () => {
+        _downloading.delete(id);
+
+        try { fs.unlinkSync(tmpPath); } catch (_) { }
+      });
+
+    } else {
+      _downloading.delete(id);
+    }
+
   } catch (e) {
-    res.status(500).json({ error: e.message });
+
+    _downloading.delete(id);
+
+    console.warn(`[prefetch] failed for ${id}:`, e.message);
   }
 });
 
@@ -496,6 +575,7 @@ app.get('/api/prewarm/:id', (req, res) => {
   if (!cached || cached.expiresAt <= Date.now()) {
     getCachedUrlInfo(id).catch(() => { });
   }
+
 });
 
 // ── /api/stream/:id ───────────────────────────────────────────────────
@@ -513,6 +593,9 @@ app.get('/api/stream/:id', async (req, res) => {
       return serveCachedFile(cacheFile, req, res);
     }
     try { fs.unlinkSync(cacheFile); } catch (_) { }
+  }
+  if (_downloading.has(id)) {
+    return res.status(429).end();
   }
 
   // 2. Get direct audio URL
@@ -646,7 +729,7 @@ app.get('/api/stream/:id', async (req, res) => {
 app.get('/health', (_req, res) =>
   res.json({ status: 'ok', ytmusicReady, time: new Date() })
 );
-
+app.get('/ping', (_, res) => res.send('ok'));
 // ── Catch-all: serve index.html ────────────────────────────────────
 app.get('*', (req, res) => {
   if (!req.path.startsWith('/api')) res.sendFile(path.join(__dirname, 'index.html'));
