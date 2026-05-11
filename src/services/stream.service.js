@@ -209,6 +209,7 @@ module.exports = {
   invalidateStreamUrl,
   serveCachedFile,
   startPrefetch,
+  isDeadVideo,
   AUDIO_CACHE_DIR,
   _downloading,
 };

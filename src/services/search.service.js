@@ -1,5 +1,13 @@
 const ytmusic = require('../providers/ytmusic.provider');
 
+// Import dead-video awareness so we can filter geo-blocked IDs from results
+// before they ever reach the frontend player
+let _isDeadVideo = () => false; // safe default before stream service loads
+try {
+  const streamSvc = require('./stream.service');
+  if (streamSvc.isDeadVideo) _isDeadVideo = streamSvc.isDeadVideo;
+} catch (_) {}
+
 // ── Language & Mood detection ─────────────────────────────────────────
 function detectLanguage(text) {
   const t = text.toLowerCase();
@@ -138,6 +146,7 @@ async function related(videoId, rawTitle = '', rawArtist = '') {
       const results = await ytmusic.searchSongs(q, 15);
       for (const item of results) {
         if (localSeen.has(item.id)) continue;
+        if (_isDeadVideo(item.id)) continue;
         if (isJunk(item.title)) continue;
         if (isNearDuplicate(item.title, seenTitles)) continue;
         if (isMoodClash(item.title, mood)) continue;
