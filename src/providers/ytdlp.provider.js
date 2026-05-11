@@ -56,7 +56,7 @@ function attempt(videoId, strategy) {
     const timer = setTimeout(() => {
       proc.kill('SIGKILL');
       reject(new Error(`timeout (${strategy.clientArg})`));
-    }, 15000);
+    }, process.env.YTDLP_TIMEOUT ? parseInt(process.env.YTDLP_TIMEOUT) : 25000);
 
     proc.stdout.on('data', d => { stdout += d.toString(); });
     proc.stderr.on('data', d => { stderr += d.toString(); });

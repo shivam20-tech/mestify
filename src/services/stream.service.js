@@ -101,11 +101,22 @@ async function resolveStreamUrl(videoId) {
   try {
     let info;
 
+    // On Render's free tier, yt-dlp spawning is too slow (CPU throttled).
+    // Skip it and use youtubei.js (pure HTTP) as primary there.
+    const skipYtdlp = !!process.env.RENDER;
+
     // Chain: yt-dlp → youtubei.js → ytdl-core
-    try {
-      info = await ytdlpProvider.extract(videoId);
-    } catch (e1) {
-      console.warn(`[stream] yt-dlp failed → youtubei.js for ${videoId}`);
+    //        (Render: youtubei.js → ytdl-core)
+    if (!skipYtdlp) {
+      try {
+        info = await ytdlpProvider.extract(videoId);
+      } catch (e1) {
+        console.warn(`[stream] yt-dlp failed → youtubei.js for ${videoId}`);
+        skipYtdlp; // fall through to youtubei.js below
+      }
+    }
+
+    if (!info) {
       try {
         info = await youtubeiProvider.extract(videoId);
         console.log(`[stream] ✅ youtubei.js succeeded for ${videoId}`);
