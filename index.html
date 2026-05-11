@@ -2823,11 +2823,21 @@
         setTimeout(() => { playNext(); }, 300);
       }
     });
+    // Track consecutive failures per video ID to auto-skip stuck tracks
+    const _failCount = {};
     audio.addEventListener('error', () => {
       const song = queue[queueIdx];
       if (!song) return;
-      toast('Stream error — retrying…');
-      setTimeout(() => loadSong(song.id), 1500);
+      _failCount[song.id] = (_failCount[song.id] || 0) + 1;
+      if (_failCount[song.id] >= 2) {
+        // Song repeatedly fails — skip it silently
+        console.warn(`[player] Skipping stuck track ${song.id} after ${_failCount[song.id]} failures`);
+        delete _failCount[song.id];
+        setTimeout(() => playNext(), 500);
+      } else {
+        toast('Stream error — retrying…');
+        setTimeout(() => loadSong(song.id), 1500);
+      }
     });
     audio.addEventListener('loadedmetadata', () => {
       if (isFinite(audio.duration) && audio.duration > 0) {
@@ -2903,7 +2913,13 @@
       } catch (e) {
         console.warn('Playback failed:', e);
         setLoadingSpinner(false);
-        toast('Tap play again 🎵');
+        // If server returned 500, skip this track — it's unavailable
+        if (e.message && (e.message.includes('500') || e.message.includes('unavailable'))) {
+          toast('Track unavailable — skipping…');
+          setTimeout(() => playNext(), 800);
+        } else {
+          toast('Tap play again 🎵');
+        }
       }
     }
 
