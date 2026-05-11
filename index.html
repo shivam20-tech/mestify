@@ -2859,13 +2859,13 @@
     audio.addEventListener('playing', () => setLoadingSpinner(false));
     audio.addEventListener('canplay', () => setLoadingSpinner(false));
 
-    // Pre-resolve stream URL before touching audio — prevents double-skip race condition
     let _currentLoadId = null;
     let _skipGuard = false;
 
     async function loadSong(id) {
       _currentLoadId = id;
       _skipGuard = false;
+
       try {
         document.getElementById('durTime').textContent = '--:--';
         document.getElementById('expDur').textContent = '--:--';
@@ -2877,32 +2877,33 @@
 
         if (_currentLoadId !== id) return;
 
-        // Step 1: Pre-resolve URL (JSON) — never load a 500 into audio element
-        let resolvedUrl;
+        // Pre-check: verify stream is available BEFORE loading into audio element
+        // (prevents browser trying to play a 500 response)
         try {
-          const r = await fetch(`${BACKEND_URL}/api/stream-url/${id}`);
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          const info = await r.json();
-          resolvedUrl = info.url;
+          const check = await fetch(`${BACKEND_URL}/api/stream-url/${id}`);
+          if (!check.ok) throw new Error(`HTTP ${check.status}`);
+          const info = await check.json();
+          // Set duration if available
           if (info.duration > 0) {
             const d = fmtTime(info.duration);
             document.getElementById('durTime').textContent = d;
             document.getElementById('expDur').textContent = d;
             audio._knownDuration = info.duration;
           }
-        } catch (urlErr) {
-          console.warn(`[player] Stream unavailable for ${id}:`, urlErr.message);
+        } catch (checkErr) {
+          console.warn(`[player] Stream unavailable for ${id}:`, checkErr.message);
           if (_currentLoadId !== id) return;
-          toast('Track unavailable — skipping…');
           setLoadingSpinner(false);
+          toast('Track unavailable — skipping…');
           setTimeout(() => playNext(), 600);
           return;
         }
 
         if (_currentLoadId !== id) return;
 
-        // Step 2: Set direct URL — not the proxy endpoint
-        audio.src = resolvedUrl;
+        // Use the SERVER PROXY endpoint — YouTube URLs are IP-locked to the server
+        // and cannot be played directly from the browser
+        audio.src = `${BACKEND_URL}/api/stream/${id}?t=${Date.now()}`;
         audio.load();
         await audio.play();
 
@@ -2919,16 +2920,17 @@
 
       } catch (e) {
         if (_currentLoadId !== id) return;
-        if (e.name === 'AbortError') return; // normal — next song interrupted
+        if (e.name === 'AbortError') return;
         console.warn('Playback failed:', e);
         setLoadingSpinner(false);
         if (!_skipGuard) {
           _skipGuard = true;
           toast('Playback error — skipping…');
-          setTimeout(() => playNext(), 600);
+          setTimeout(() => playNext(), 800);
         }
       }
     }
+
 
 
     async function apiFetch(path) {
