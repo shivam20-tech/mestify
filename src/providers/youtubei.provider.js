@@ -79,13 +79,15 @@ async function extract(videoId) {
   let url;
   try {
     const raw = format.url;
-    // Normalize URL object → string
     const rawStr = raw ? (typeof raw === 'string' ? raw : String(raw)) : null;
 
     if (rawStr && rawStr.startsWith('http')) {
       url = rawStr;
     } else {
-      // Needs deciphering
+      // Only attempt decipher if player session is ready
+      if (!innertube.session?.player) {
+        throw new Error('youtubei.js player session not ready — skipping decipher');
+      }
       const deciphered = format.decipher(innertube.session.player);
       url = deciphered ? (typeof deciphered === 'string' ? deciphered : String(deciphered)) : null;
     }

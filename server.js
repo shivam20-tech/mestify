@@ -2,14 +2,44 @@ require('dotenv').config();
 require('dns').setDefaultResultOrder('ipv4first');
 
 // ── Suppress youtubei.js internal log spam ───────────────────────────
-// [YOUTUBEJS][Text] / [YOUTUBEJS][Parser] are harmless internal warnings
-// that clutter logs. Filter them out globally before any module loads.
 const _origWarn  = console.warn.bind(console);
 const _origError = console.error.bind(console);
 const _ytjsNoise = /^\[YOUTUBEJS\]\[(Text|Parser)\]/;
 console.warn  = (...a) => { if (typeof a[0] === 'string' && _ytjsNoise.test(a[0])) return; _origWarn(...a); };
 console.error = (...a) => { if (typeof a[0] === 'string' && _ytjsNoise.test(a[0])) return; _origError(...a); };
 // ─────────────────────────────────────────────────────────────────────
+
+// ── Global PlayerError guard ─────────────────────────────────────────
+// youtubei.js throws PlayerError synchronously in some async contexts,
+// which bypasses try/catch and crashes Node. Catch it globally and
+// reinitialize the session instead of dying.
+function _handlePlayerError(err, label) {
+  const isPlayer = err?.name === 'PlayerError'
+    || err?.message?.includes('No valid URL to decipher')
+    || err?.message?.includes('PlayerError');
+  if (isPlayer) {
+    console.warn(`[youtubei] ${label} PlayerError — reinitializing session`);
+    try {
+      require('./src/providers/youtubei.provider').reinit().catch(() => {});
+    } catch (_) {}
+    return true; // handled
+  }
+  return false;
+}
+
+process.on('uncaughtException', (err) => {
+  if (_handlePlayerError(err, 'uncaughtException')) return;
+  console.error('💥 Uncaught exception:', err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  if (_handlePlayerError(reason, 'unhandledRejection')) return;
+  console.error('💥 Unhandled rejection:', reason);
+  // Do NOT exit — unhandled rejections are often recoverable
+});
+// ─────────────────────────────────────────────────────────────────────
+
 
 
 const express = require('express');
