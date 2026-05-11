@@ -144,13 +144,26 @@ async function bootstrap() {
     exec(`"${env.YTDLP_PATH}" --version`, (err, stdout) => {
       if (err) {
         console.error(`   ❌ yt-dlp NOT found at "${env.YTDLP_PATH}"`);
-        console.error(`      → Install: pip install yt-dlp  OR  winget install yt-dlp`);
-        console.error(`      → Or set YTDLP_PATH=C:\\path\\to\\yt-dlp.exe in .env`);
       } else {
         console.log(`   yt-dlp:     ✅ v${stdout.trim()}`);
       }
     });
+
+    // ── Render free tier keepalive ─────────────────────────────────────
+    // Render spins down free services after 15min inactivity.
+    // Self-ping every 14min keeps it awake.
+    if (process.env.RENDER) {
+      const http = require('http');
+      const SELF_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${env.PORT}`;
+      setInterval(() => {
+        http.get(`${SELF_URL}/health`, (r) => {
+          console.log(`[keepalive] ping → ${r.statusCode}`);
+        }).on('error', () => {});
+      }, 14 * 60 * 1000);
+      console.log('✅ Render keepalive enabled (ping every 14min)');
+    }
   });
+
 }
 
 bootstrap().catch(err => {
