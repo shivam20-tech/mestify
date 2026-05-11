@@ -28,6 +28,15 @@ async function init() {
       cookie: cookie || undefined,
       retrieve_player: true,
     });
+
+    // Suppress noisy internal [YOUTUBEJS][Text] attachment run warnings
+    try {
+      const { Log } = require('youtubei.js/dist/src/utils/Log.js');
+      if (Log && Log.setLevel) Log.setLevel(Log.Level.ERROR);
+    } catch (_) {
+      // Log suppression not available in this version — harmless
+    }
+
     console.log(`✅ youtubei.js initialized${cookie ? ' (with cookies ✅)' : ' (no cookies)'}`);
   } catch (e) {
     console.warn('⚠️  youtubei.js init failed:', e.message);

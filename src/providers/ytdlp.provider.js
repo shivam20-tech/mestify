@@ -3,11 +3,30 @@ const path = require('path');
 const fs = require('fs');
 const env = require('../config/env');
 
+// Indian ISP IPs for geo-bypass (Jio, Airtel, BSNL, Vodafone)
+const INDIAN_IPS = ['49.44.0.1', '103.21.124.1', '117.196.0.1', '122.160.0.1'];
+const randomIndianIp = () => INDIAN_IPS[Math.floor(Math.random() * INDIAN_IPS.length)];
+
 const STRATEGIES = [
-  { clientArg: 'youtube:player_client=ios',     extraArgs: ['--add-header', 'X-Forwarded-For:8.8.8.8'] },
-  { clientArg: 'youtube:player_client=android', extraArgs: [] },
-  { clientArg: 'youtube:player_client=web',     extraArgs: ['--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36'] },
-  { clientArg: 'youtube:player_client=tv',      extraArgs: [] },
+  {
+    clientArg: 'youtube:player_client=ios',
+    extraArgs: ['--add-header', `X-Forwarded-For:${randomIndianIp()}`],
+  },
+  {
+    clientArg: 'youtube:player_client=android',
+    extraArgs: ['--add-header', `X-Forwarded-For:${randomIndianIp()}`],
+  },
+  {
+    clientArg: 'youtube:player_client=web',
+    extraArgs: [
+      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36',
+      '--add-header', `X-Forwarded-For:${randomIndianIp()}`,
+    ],
+  },
+  {
+    clientArg: 'youtube:player_client=tv',
+    extraArgs: ['--add-header', `X-Forwarded-For:${randomIndianIp()}`],
+  },
 ];
 
 function attempt(videoId, strategy) {
@@ -21,6 +40,7 @@ function attempt(videoId, strategy) {
       ...strategy.extraArgs,
       '--no-playlist',
       '--geo-bypass',
+      '--geo-bypass-country', 'IN',
       '--no-check-certificates',
       '--socket-timeout', '10',
       '--retries', '2',
@@ -66,7 +86,7 @@ async function extract(videoId) {
       console.log(`[yt-dlp] ✅ ${strategy.clientArg} → ${videoId}`);
       return result;
     } catch (e) {
-      console.warn(`[yt-dlp] ❌ ${strategy.clientArg}:`, e.message.slice(0, 100));
+      console.warn(`[yt-dlp] ❌ ${strategy.clientArg}: ${e.message.slice(0, 100)}`);
       lastErr = e;
     }
   }
