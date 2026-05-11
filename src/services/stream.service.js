@@ -4,9 +4,10 @@ const os = require('os');
 const axios = require('axios');
 const env = require('../config/env');
 const { getCache } = require('../config/redis');
-const ytdlpProvider   = require('../providers/ytdlp.provider');
+const ytdlpProvider    = require('../providers/ytdlp.provider');
 const youtubeiProvider = require('../providers/youtubei.provider');
-const ytdlProvider    = require('../providers/ytdl.provider');
+const invidiousProvider = require('../providers/invidious.provider');
+const ytdlProvider     = require('../providers/ytdl.provider');
 
 // ── Audio file cache dir ─────────────────────────────────────────────
 const AUDIO_CACHE_DIR = path.join(os.tmpdir(), 'mestify_audio');
@@ -121,8 +122,13 @@ async function resolveStreamUrl(videoId) {
         info = await youtubeiProvider.extract(videoId);
         console.log(`[stream] ✅ youtubei.js succeeded for ${videoId}`);
       } catch (e2) {
-        console.warn(`[stream] youtubei.js failed → ytdl-core for ${videoId}:`, e2.message.slice(0, 80));
-        info = await ytdlProvider.extract(videoId);
+        console.warn(`[stream] youtubei.js failed → Invidious for ${videoId}:`, e2.message.slice(0, 60));
+        try {
+          info = await invidiousProvider.extract(videoId);
+        } catch (e3) {
+          console.warn(`[stream] Invidious failed → ytdl-core for ${videoId}:`, e3.message.slice(0, 60));
+          info = await ytdlProvider.extract(videoId);
+        }
       }
     }
 
