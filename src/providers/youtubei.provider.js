@@ -73,14 +73,24 @@ async function extract(videoId) {
 
   const format = audioFormats[0];
 
-  // v17: some formats have a plain .url, others need .decipher(player)
-  let url = format.url;
-  if (!url || !url.startsWith('http')) {
-    try {
-      url = format.decipher(innertube.session.player);
-    } catch (e) {
-      throw new Error(`youtubei.js decipher failed: ${e.message}`);
+  // v17: format.url may be a string, a URL object, or undefined.
+  // format.decipher() may throw PlayerError for some protected streams.
+  // Wrap EVERYTHING in try/catch so a bad format never crashes the server.
+  let url;
+  try {
+    const raw = format.url;
+    // Normalize URL object → string
+    const rawStr = raw ? (typeof raw === 'string' ? raw : String(raw)) : null;
+
+    if (rawStr && rawStr.startsWith('http')) {
+      url = rawStr;
+    } else {
+      // Needs deciphering
+      const deciphered = format.decipher(innertube.session.player);
+      url = deciphered ? (typeof deciphered === 'string' ? deciphered : String(deciphered)) : null;
     }
+  } catch (e) {
+    throw new Error(`youtubei.js URL extraction failed: ${e.message}`);
   }
 
   if (!url || !url.startsWith('http')) throw new Error('youtubei.js could not produce a valid URL');
@@ -90,4 +100,5 @@ async function extract(videoId) {
 }
 
 module.exports = { extract, reinit };
+
 
