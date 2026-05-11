@@ -333,13 +333,37 @@ app.get('/api/related/:videoId', async (req, res) => {
 //  STREAMING — yt-dlp PRIMARY  +  ytdl-core FALLBACK
 // ═══════════════════════════════════════════════════════════════
 
-function ytdlpGetUrlAndFormat(videoId) {
+// Try multiple YouTube player clients in order — iOS is least bot-blocked,
+// android is second, web is last resort. Each attempt gets its own timeout.
+const YTDLP_CLIENT_STRATEGIES = [
+  {
+    clientArg: 'youtube:player_client=ios',
+    extraArgs: ['--add-header', 'X-Forwarded-For:8.8.8.8'],
+  },
+  {
+    clientArg: 'youtube:player_client=android',
+    extraArgs: [],
+  },
+  {
+    clientArg: 'youtube:player_client=web',
+    extraArgs: [
+      '--user-agent',
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123 Safari/537.36',
+    ],
+  },
+];
+
+// Single attempt with one client strategy
+function _ytdlpAttempt(videoId, strategy) {
   return new Promise((resolve, reject) => {
     const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const cookiesPath = path.join(__dirname, 'cookies.txt');
+    const hasCookies = fs.existsSync(cookiesPath);
+
     const args = [
-      '--cookies', 'cookies.txt',
-      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123 Safari/537.36',
-      '--extractor-args', 'youtube:player_client=web',
+      ...(hasCookies ? ['--cookies', cookiesPath] : []),
+      '--extractor-args', strategy.clientArg,
+      ...strategy.extraArgs,
       '--no-playlist',
       '--geo-bypass',
       '--no-check-certificates',
@@ -348,14 +372,13 @@ function ytdlpGetUrlAndFormat(videoId) {
       ytUrl,
     ];
 
-    // FIX #14: Use YTDLP_PATH constant instead of bare 'yt-dlp'
     const proc = spawn(YTDLP_PATH, args);
     let out = '';
     let err = '';
 
     const killer = setTimeout(() => {
       proc.kill('SIGKILL');
-      reject(new Error('yt-dlp timeout'));
+      reject(new Error(`yt-dlp timeout (${strategy.clientArg})`));
     }, 15000);
 
     proc.stdout.on('data', d => { out += d.toString(); });
@@ -365,9 +388,14 @@ function ytdlpGetUrlAndFormat(videoId) {
       clearTimeout(killer);
       const url = out.trim();
       if (code === 0 && url.startsWith('http')) {
+        console.log(`[yt-dlp] ✅ success with ${strategy.clientArg}`);
         resolve({ url, ext: 'm4a', isHLS: false, duration: 0 });
       } else {
-        reject(new Error(err || `yt-dlp exited ${code}`));
+        // Detect cookie expiry specifically so we can log a helpful message
+        if (err.includes('Sign in to confirm') || err.includes('bot')) {
+          console.error('🍪 [yt-dlp] Bot detection triggered — re-export cookies.txt from your browser');
+        }
+        reject(new Error(err.slice(0, 300) || `yt-dlp exited ${code}`));
       }
     });
 
@@ -376,6 +404,20 @@ function ytdlpGetUrlAndFormat(videoId) {
       reject(e);
     });
   });
+}
+
+// Tries all client strategies in order, returns first success
+async function ytdlpGetUrlAndFormat(videoId) {
+  let lastError;
+  for (const strategy of YTDLP_CLIENT_STRATEGIES) {
+    try {
+      return await _ytdlpAttempt(videoId, strategy);
+    } catch (e) {
+      console.warn(`[yt-dlp] ${strategy.clientArg} failed:`, e.message.slice(0, 120));
+      lastError = e;
+    }
+  }
+  throw new Error(`All yt-dlp strategies exhausted. Last error: ${lastError?.message?.slice(0, 200)}`);
 }
 
 // FIX #2 (Bug #7): ytdlGetUrlAndFormat is now actually called as fallback
