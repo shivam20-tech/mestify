@@ -15,16 +15,39 @@ async function extract(videoId) {
   if (!innertube) throw new Error('youtubei.js not initialized');
 
   const info = await innertube.getInfo(videoId);
+  const streamingData = info.streaming_data;
+  if (!streamingData) throw new Error('No streaming_data from youtubei.js');
 
-  // Try to get a streamable format
-  const format = info.chooseFormat({ type: 'audio', quality: 'best' });
-  if (!format) throw new Error('No audio format via youtubei.js');
+  // Collect all formats, prefer adaptive (audio-only)
+  const allFormats = [
+    ...(streamingData.adaptive_formats || []),
+    ...(streamingData.formats || []),
+  ];
 
-  // Decipher the URL using the session player
-  const url = format.decipher(innertube.session.player);
-  if (!url || !url.startsWith('http')) throw new Error('youtubei.js deciphered URL invalid');
+  // Pick best audio-only format by bitrate
+  const audioFormats = allFormats
+    .filter(f => f.has_audio && !f.has_video)
+    .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
 
-  return { url, ext: format.mime_type?.includes('webm') ? 'webm' : 'm4a', isHLS: false };
+  if (!audioFormats.length) throw new Error('No audio-only formats via youtubei.js');
+
+  const format = audioFormats[0];
+
+  // v17: some formats have a plain .url, others need .decipher(player)
+  let url = format.url;
+  if (!url || !url.startsWith('http')) {
+    try {
+      url = format.decipher(innertube.session.player);
+    } catch (e) {
+      throw new Error(`youtubei.js decipher failed: ${e.message}`);
+    }
+  }
+
+  if (!url || !url.startsWith('http')) throw new Error('youtubei.js could not produce a valid URL');
+
+  const isWebm = format.mime_type?.includes('webm') || format.mime_type?.includes('opus');
+  return { url, ext: isWebm ? 'webm' : 'm4a', isHLS: false };
 }
 
 module.exports = { extract };
+

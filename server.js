@@ -43,6 +43,10 @@ async function bootstrap() {
   }));
   app.use(express.json());
 
+  // ── Trust Railway/Heroku/Fly.io reverse proxy ──────────────────────
+  // MUST be set before rate-limit middleware or X-Forwarded-For throws
+  app.set('trust proxy', 1);
+
   // ── Rate limiting (uses express-rate-limit if installed) ───────────
   try {
     const rateLimit = require('express-rate-limit');
