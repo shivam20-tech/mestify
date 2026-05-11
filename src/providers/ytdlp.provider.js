@@ -79,18 +79,21 @@ function attempt(videoId, strategy) {
 }
 
 async function extract(videoId) {
-  let lastErr;
-  for (const strategy of STRATEGIES) {
-    try {
-      const result = await attempt(videoId, strategy);
-      console.log(`[yt-dlp] ✅ ${strategy.clientArg} → ${videoId}`);
-      return result;
-    } catch (e) {
-      console.warn(`[yt-dlp] ❌ ${strategy.clientArg}: ${e.message.slice(0, 100)}`);
-      lastErr = e;
-    }
+  // Run ALL strategies simultaneously — first success wins.
+  // This means worst-case time is 1×timeout, not 4×timeout.
+  try {
+    const result = await Promise.any(
+      STRATEGIES.map(strategy => attempt(videoId, strategy))
+    );
+    return result;
+  } catch (err) {
+    // AggregateError — all strategies failed
+    const msgs = err.errors
+      ? err.errors.map(e => e.message.slice(0, 60)).join(' | ')
+      : err.message;
+    throw new Error(`All yt-dlp strategies failed: ${msgs}`);
   }
-  throw new Error(`All yt-dlp strategies failed: ${lastErr?.message?.slice(0, 200)}`);
 }
 
 module.exports = { extract };
+

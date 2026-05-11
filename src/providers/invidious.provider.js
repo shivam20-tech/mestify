@@ -9,20 +9,21 @@ const axios = require('axios');
 // ── Piped API instances (primary) ────────────────────────────────────
 const PIPED_INSTANCES = [
   'https://pipedapi.kavin.rocks',
-  'https://pipedapi.adminforge.de',
-  'https://api.piped.projectsegfault.com',
-  'https://pipedapi.leptons.xyz',
-  'https://piped-api.garudalinux.org',
-  'https://piped.privacydev.net/api',
+  'https://pipedapi.tokhmi.xyz',
+  'https://pipedapi.moomoo.me',
+  'https://pipedapi.syncpundit.io',
+  'https://api.piped.yt',
+  'https://piped.yt/api',
+  'https://piped.smnz.de/api',
 ];
 
 // ── Invidious API instances (backup) ─────────────────────────────────
 const INVIDIOUS_INSTANCES = [
-  'https://invidious.fdn.fr',
-  'https://invidious.tiekoetter.com',
-  'https://invidious.flokinet.to',
-  'https://yt.cdaut.de',
-  'https://invidious.projectsegfault.com',
+  'https://invidious.io.lol',
+  'https://inv.nadeko.net',
+  'https://invidious.incogniweb.net',
+  'https://iv.datura.network',
+  'https://invidious.privacyredirect.com',
 ];
 
 function shuffled(arr) {
