@@ -2823,14 +2823,16 @@
         setTimeout(() => { playNext(); }, 300);
       }
     });
-    // Track consecutive failures per video ID to auto-skip stuck tracks
+    // Track consecutive failures — but IGNORE errors during intentional loading
+    // (setting audio.src='' triggers an error event which causes a cascade)
     const _failCount = {};
+    let _isLoading = false;
     audio.addEventListener('error', () => {
+      if (_isLoading) return; // intentional src clear — not a real failure
       const song = queue[queueIdx];
       if (!song) return;
       _failCount[song.id] = (_failCount[song.id] || 0) + 1;
       if (_failCount[song.id] >= 2) {
-        // Song repeatedly fails — skip it silently
         console.warn(`[player] Skipping stuck track ${song.id} after ${_failCount[song.id]} failures`);
         delete _failCount[song.id];
         setTimeout(() => playNext(), 500);
@@ -2871,9 +2873,11 @@
         document.getElementById('expDur').textContent = '--:--';
         setLoadingSpinner(true);
 
+        _isLoading = true;
         audio.pause();
         audio.src = '';
         audio.load();
+        _isLoading = false;
 
         if (_currentLoadId !== id) return;
 
@@ -2895,8 +2899,13 @@
             audio._knownDuration = info.duration;
           }
         } catch (checkErr) {
+          if (_currentLoadId !== id) return; // stale — another song was requested
+          if (checkErr.name === 'AbortError') {
+            // 30s timeout or song changed — just skip
+            setTimeout(() => { if (_currentLoadId === id) playNext(); }, 100);
+            return;
+          }
           console.warn(`[player] Stream unavailable for ${id}:`, checkErr.message);
-          if (_currentLoadId !== id) return;
           setLoadingSpinner(false);
           toast('Track unavailable — skipping…');
           setTimeout(() => playNext(), 600);
