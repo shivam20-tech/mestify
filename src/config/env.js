@@ -11,7 +11,7 @@ function defaultYtdlpPath() {
 
 module.exports = {
   NODE_ENV: process.env.NODE_ENV || 'development',
-  PORT: parseInt(process.env.PORT || '5000', 10),
+  PORT: parseInt(process.env.PORT || '8080', 10),
   REDIS_URL: process.env.REDIS_URL || null,
   YTDLP_PATH: defaultYtdlpPath(),
   AUDIO_CACHE_MAX: parseInt(process.env.AUDIO_CACHE_MAX || '100', 10),
