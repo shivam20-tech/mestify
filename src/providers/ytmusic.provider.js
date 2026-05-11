@@ -49,10 +49,42 @@ async function innertubeSearch(query, limit = 15) {
   try {
     const yt = await getInnertubeSearch();
     if (!yt) return [];
+
     const results = await yt.music.search(query, { type: 'song' });
-    const tracks = results?.contents?.flatMap?.(s => s?.contents?.flatMap?.(c => c?.data ? [c.data] : []) || []) || [];
-    return tracks.map(mapYtjsTrack).filter(Boolean).slice(0, limit);
-  } catch (_) { return []; }
+    const tracks = [];
+
+    // Walk all sections (MusicShelf nodes)
+    for (const section of (results?.contents || [])) {
+      const items = section?.contents || section?.results || [];
+      for (const item of items) {
+        try {
+          const id = item.id;
+          // title is a Text node in youtubei.js
+          const title = item.title?.text ?? item.title ?? item.name;
+          const artist = item.artists?.[0]?.name
+            ?? item.author?.name
+            ?? item.short_description?.text
+            ?? 'Unknown';
+          const thumbnail = item.thumbnails?.contents?.[0]?.url
+            ?? item.thumbnails?.[0]?.url
+            ?? item.thumbnail?.url
+            ?? '';
+          if (id && title) tracks.push({ id, title, artist, thumbnail });
+        } catch (_) {}
+      }
+    }
+
+    if (tracks.length) {
+      console.log(`[ytmusic] innertube search returned ${tracks.length} results for "${query}"`);
+    } else {
+      console.warn(`[ytmusic] innertube search returned 0 results for "${query}"`);
+    }
+
+    return tracks.slice(0, limit);
+  } catch (e) {
+    console.warn('[ytmusic] innertube search failed:', e.message.slice(0, 80));
+    return [];
+  }
 }
 
 // ── Public API ────────────────────────────────────────────────────────
