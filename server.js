@@ -58,7 +58,7 @@ let ytmusicReady = false;
 // ═══════════════════════════════════════════════════════════════
 let ytdl = null;
 try {
-  ytdl = require('ytdl-core');
+
   console.log('✅ @distube/ytdl-core loaded (fallback)');
 } catch (e) {
   console.warn('⚠️  ytdl-core not available:', e.message);
@@ -352,8 +352,10 @@ function ytdlpGetUrlAndFormat(videoId) {
       '--extractor-args',
       'youtube:player_client=android',
       '--no-playlist',
+      '--quiet',
+      '--no-progress',
       '-f',
-      'bestaudio[ext=m4a]/bestaudio/best',
+      '18/bestaudio/best',
       '--print',
       '%(url)s\n%(ext)s\n%(protocol)s\n%(duration)s',
       '--no-warnings',
@@ -364,7 +366,7 @@ function ytdlpGetUrlAndFormat(videoId) {
     const killer = setTimeout(() => {
       proc.kill('SIGKILL');
       reject(new Error('yt-dlp timed out after 20s'));
-    }, 90000);
+    }, 120000);
 
     let out = '', err = '';
     proc.stdout.on('data', d => { out += d.toString(); });
@@ -576,8 +578,10 @@ app.get('/api/stream/:id', async (req, res) => {
     '--extractor-args',
     'youtube:player_client=android',
     '--no-playlist',
+    '--quiet',
+    '--no-progress',
     '-f',
-    'bestaudio/best',
+    '18/bestaudio/best',
     '--no-warnings',
     '-o',
     '-',
@@ -605,10 +609,7 @@ app.get('/api/stream/:id', async (req, res) => {
     if (!res.writableEnded) res.write(chunk);
     if (tmp) tmp.write(chunk);
   });
-  proc.stderr.on('data', d => {
-    const m = d.toString().trim();
-    if (m && !m.includes('Retrying')) console.warn('[stream:hls]', m.slice(0, 100));
-  });
+  proc.stderr.on('data', () => { });
   req.on('close', () => { ok = false; proc.kill('SIGKILL'); });
   proc.on('close', code => {
     if (tmp) {
