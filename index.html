@@ -2856,10 +2856,11 @@
 
       audio.play().catch(async () => {
         try {
-          await audio.load();
+          audio.load();
           await audio.play();
         } catch (e) {
-          console.warn('Autoplay resume failed:', e);
+          console.warn('Playback failed:', e);
+          setLoadingSpinner(false);
         }
       });
       if (pp) pp.catch(e => { if (e.name !== 'AbortError') { console.warn('[play]', e.message); setLoadingSpinner(false); } });
