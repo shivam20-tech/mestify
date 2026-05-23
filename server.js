@@ -152,7 +152,14 @@ function scoreAndRank(items, user, seenIds = new Set()) {
 let innerTube = null;
 (async () => {
   try {
-    const { Innertube } = require('youtubei.js');
+    const { Innertube, Platform } = require('youtubei.js');
+    
+    // Custom JS evaluator shim for YouTube signature deciphering
+    Platform.shim.eval = (data) => {
+      const code = (typeof data === 'object' && data.output) ? data.output : data;
+      return new Function(code)();
+    };
+
     innerTube = await Innertube.create({
       lang: 'en',
       location: 'US',
@@ -848,10 +855,28 @@ app.get('/api/upnext/:videoId', async (req, res) => {
 
 
 // ════════════════════════════════════════════════════════════════
-//  STREAM — yt-dlp primary (most reliable), Piped API fallback
+//  STREAM — Innertube primary (most reliable), yt-dlp/Piped fallbacks
 // ════════════════════════════════════════════════════════════════
 const { spawn, execFile } = require('child_process');
 const YTDLP_CMD = process.platform === 'win32' ? 'yt-dlp' : 'yt-dlp';
+
+// URL cache for Innertube (googlevideo URLs expire ~6h, cache 5h)
+const innertubeCache = new Map();
+
+async function getCachedInnertubeUrl(videoId) {
+  const cached = innertubeCache.get(videoId);
+  if (cached && cached.expiresAt > Date.now()) return cached.url;
+  
+  if (!innerTube) throw new Error('Innertube not initialized');
+  const info = await innerTube.getBasicInfo(videoId, { client: 'YTMUSIC' });
+  const format = info.chooseFormat({ type: 'audio', quality: 'best' });
+  const url = await format.decipher(innerTube.session.player);
+  if (!url || !url.startsWith('http')) throw new Error('Innertube returned no deciphered URL');
+  
+  innertubeCache.set(videoId, { url, expiresAt: Date.now() + 5 * 60 * 60 * 1000 });
+  if (innertubeCache.size > 200) innertubeCache.delete(innertubeCache.keys().next().value);
+  return url;
+}
 
 // Get stream URL via yt-dlp (extracts direct audio URL)
 function getYtdlpUrl(videoId) {
@@ -871,9 +896,8 @@ function getYtdlpUrl(videoId) {
   });
 }
 
-// URL cache for yt-dlp (URLs expire ~6h, cache 5h)
+// URL cache for yt-dlp
 const ytdlpCache = new Map();
-
 async function getCachedYtdlpUrl(videoId) {
   const cached = ytdlpCache.get(videoId);
   if (cached && cached.expiresAt > Date.now()) return cached.url;
@@ -892,7 +916,27 @@ app.get('/api/stream/:id', async (req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Range');
   res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length');
 
-  // ── Strategy A: yt-dlp (most reliable) ────────────────────────
+  // ── Strategy A: Innertube (Direct deciphered proxy — most reliable) ──
+  const tryInnertube = async () => {
+    const audioUrl = await getCachedInnertubeUrl(id);
+    const rangeHeader = req.headers.range;
+    const upHeaders = { 'User-Agent': 'Mozilla/5.0 (compatible; Mestify/2.0)' };
+    if (rangeHeader) upHeaders['Range'] = rangeHeader;
+
+    const upstream = await axios({ method: 'get', url: audioUrl, headers: upHeaders, responseType: 'stream', timeout: 30000 });
+    const mimeType = audioUrl.includes('mime=audio%2Fmp4') || audioUrl.includes('mime=audio/mp4') ? 'audio/mp4' : 'audio/webm';
+    const resHeaders = { 'Content-Type': mimeType, 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-cache' };
+    if (upstream.headers['content-length']) resHeaders['Content-Length'] = upstream.headers['content-length'];
+    if (upstream.headers['content-range'])  resHeaders['Content-Range']  = upstream.headers['content-range'];
+
+    const statusCode = (rangeHeader && upstream.status === 206) ? 206 : 200;
+    res.writeHead(statusCode, resHeaders);
+    upstream.data.pipe(res);
+    req.on('close', () => { try { upstream.data.destroy(); } catch (_) {} });
+    console.log(`[stream] ✅ Innertube → ${id} (${mimeType})`);
+  };
+
+  // ── Strategy B: yt-dlp (reliable fallback if local) ─────────────────
   const tryYtdlp = async () => {
     const audioUrl = await getCachedYtdlpUrl(id);
     const rangeHeader = req.headers.range;
@@ -912,7 +956,7 @@ app.get('/api/stream/:id', async (req, res) => {
     console.log(`[stream] ✅ yt-dlp → ${id} (${mimeType})`);
   };
 
-  // ── Strategy B: Piped API proxy ───────────────────────────────
+  // ── Strategy C: Piped API proxy (fallback) ───────────────────────────
   const tryPiped = async () => {
     const stream = await getPipedStream(id);
     const rangeHeader = req.headers.range;
@@ -939,7 +983,7 @@ app.get('/api/stream/:id', async (req, res) => {
   };
 
   // Try all strategies in order
-  const strategies = [tryYtdlp, tryPiped];
+  const strategies = [tryInnertube, tryYtdlp, tryPiped];
   let lastErr;
   for (const strategy of strategies) {
     try {
