@@ -868,14 +868,29 @@ async function getCachedInnertubeUrl(videoId) {
   if (cached && cached.expiresAt > Date.now()) return cached.url;
   
   if (!innerTube) throw new Error('Innertube not initialized');
-  const info = await innerTube.getBasicInfo(videoId, { client: 'YTMUSIC' });
-  const format = info.chooseFormat({ type: 'audio', quality: 'best' });
-  const url = await format.decipher(innerTube.session.player);
-  if (!url || !url.startsWith('http')) throw new Error('Innertube returned no deciphered URL');
+
+  // Try clients in order of stability on datacenter/cloud IPs
+  const clients = ['TV', 'ANDROID_VR', 'YTMUSIC'];
+  let lastErr;
   
-  innertubeCache.set(videoId, { url, expiresAt: Date.now() + 5 * 60 * 60 * 1000 });
-  if (innertubeCache.size > 200) innertubeCache.delete(innertubeCache.keys().next().value);
-  return url;
+  for (const clientName of clients) {
+    try {
+      const info = await innerTube.getBasicInfo(videoId, { client: clientName });
+      const format = info.chooseFormat({ type: 'audio', quality: 'best' });
+      const url = await format.decipher(innerTube.session.player);
+      if (url && url.startsWith('http')) {
+        console.log(`[innertube] ✅ successfully generated stream URL using client: ${clientName}`);
+        innertubeCache.set(videoId, { url, expiresAt: Date.now() + 5 * 60 * 60 * 1000 });
+        if (innertubeCache.size > 200) innertubeCache.delete(innertubeCache.keys().next().value);
+        return url;
+      }
+    } catch (e) {
+      lastErr = e;
+      console.warn(`[innertube] ⚠️ client ${clientName} failed for ${videoId}: ${e.message}`);
+    }
+  }
+  
+  throw new Error(`All Innertube clients failed to generate stream URL: ${lastErr?.message}`);
 }
 
 // Get stream URL via yt-dlp (extracts direct audio URL)
