@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0f0f0f" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Mestify – Music for Everyone</title>
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link rel="stylesheet" href="/style.css" />
+  <script>
+    window.addEventListener('error', function(e) {
+      var errDiv = document.getElementById('debug-err-box');
+      if (!errDiv) {
+        errDiv = document.createElement('div');
+        errDiv.id = 'debug-err-box';
+        errDiv.style = 'position:fixed;top:10px;left:10px;right:10px;background:rgba(255,0,0,0.95);color:white;padding:16px;z-index:999999;font-family:monospace;font-size:12px;border-radius:8px;word-break:break-all;box-shadow:0 4px 12px rgba(0,0,0,0.5);';
+        document.body.appendChild(errDiv);
+      }
+      errDiv.innerHTML += '<div><b>Error:</b> ' + e.message + ' at ' + e.filename + ':' + e.lineno + '</div>';
+    });
+  </script>
+</head>
+
+<body>
+
+  <!-- ═══════════ SIDEBAR ═══════════ -->
+  <aside id="sidebar">
+    <div class="logo">
+      <div class="logo-icon">🎵</div>
+      <span>Mestify</span>
+    </div>
+
+    <!-- User Badge -->
+    <div class="user-badge hidden" id="userBadge" onclick="renderProfile()" title="Your Profile">
+      <div class="user-avatar" id="userAvatarBadge">?</div>
+      <div class="user-info">
+        <div class="user-name" id="userNameBadge">Guest</div>
+        <div class="user-genre" id="userGenreBadge">Start listening</div>
+      </div>
+      <button class="user-logout" id="logoutBtn" title="Logout" onclick="logoutUser(event)"><i
+          class="fa-solid fa-right-from-bracket"></i></button>
+    </div>
+    <div class="guest-badge" id="guestBadge" onclick="showLogin()">
+      <i class="fa-regular fa-circle-user"></i>
+      <span>Sign in for personalized music</span>
+    </div>
+
+    <nav>
+      <div class="nav-label">Menu</div>
+      <button class="nav-item active" data-view="home"><i class="fa-solid fa-house"></i> Home</button>
+      <button class="nav-item" data-view="search"><i class="fa-solid fa-magnifying-glass"></i> Search</button>
+      <button class="nav-item" data-view="library"><i class="fa-solid fa-book-open"></i> Library</button>
+      <button class="nav-item" data-view="queue"><i class="fa-solid fa-list"></i> Queue</button>
+      <button class="nav-item" data-view="history"><i class="fa-solid fa-clock-rotate-left"></i> History</button>
+      <div class="nav-label" style="margin-top:8px">Genres</div>
+    </nav>
+    <div class="genre-pills">
+      <button class="genre-pill active" data-genre="pop"><span class="dot"
+          style="background:#6c63ff"></span>Pop</button>
+      <button class="genre-pill" data-genre="bollywood"><span class="dot"
+          style="background:#f7c059"></span>Bollywood</button>
+      <button class="genre-pill" data-genre="hiphop"><span class="dot"
+          style="background:#ff6584"></span>Hip-Hop</button>
+      <button class="genre-pill" data-genre="rock"><span class="dot" style="background:#f7971e"></span>Rock</button>
+      <button class="genre-pill" data-genre="electronic"><span class="dot"
+          style="background:#43e97b"></span>Electronic</button>
+      <button class="genre-pill" data-genre="rnb"><span class="dot" style="background:#f953c6"></span>R&B</button>
+      <button class="genre-pill" data-genre="indie"><span class="dot" style="background:#56ccf2"></span>Indie</button>
+      <button class="genre-pill" data-genre="punjabi"><span class="dot"
+          style="background:#ff9f43"></span>Punjabi</button>
+      <button class="genre-pill" data-genre="marathi"><span class="dot"
+          style="background:#ee5a24"></span>Marathi</button>
+      <button class="genre-pill" data-genre="kpop"><span class="dot" style="background:#fd79a8"></span>K-Pop</button>
+      <button class="genre-pill" data-genre="lofi"><span class="dot" style="background:#a29bfe"></span>Lofi</button>
+      <button class="genre-pill" data-genre="tamil"><span class="dot" style="background:#00b894"></span>Tamil</button>
+      <button class="genre-pill" data-genre="telugu"><span class="dot" style="background:#0984e3"></span>Telugu</button>
+    </div>
+  </aside>
+
+  <!-- ═══════════ MAIN ═══════════ -->
+  <main id="main">
+    <header id="topbar">
+      <h1 id="pageTitle">Good vibes 🎧</h1>
+      <div class="search-wrap">
+        <i class="fa-solid fa-magnifying-glass"></i>
+        <input id="searchInput" type="text" placeholder="Songs, artists, vibes…" autocomplete="off" />
+        <button id="searchBtn"><i class="fa-solid fa-arrow-right"></i></button>
+        <div id="suggestions"></div>
+      </div>
+      <div class="topbar-actions">
+        <button class="icon-btn" id="notiBell" title="Notifications"><i class="fa-regular fa-bell"></i></button>
+        <div class="topbar-profile" id="topbarProfile" onclick="renderProfile()" title="Your Profile">
+          <div class="user-avatar-small" id="userAvatarSmall">J</div>
+        </div>
+      </div>
+    </header>
+    <div id="content"></div>
+  </main>
+
+  <!-- ═══════════ PLAYER BAR ═══════════ -->
+  <footer id="player">
+    <!-- Mobile top mini progress bar -->
+    <div id="mobProgress" class="mob-progress-bar">
+      <div id="mobProgressFill" class="mob-progress-fill"></div>
+    </div>
+
+    <!-- Now playing (desktop) -->
+    <div class="now-playing" id="nowPlayingSection">
+      <img id="npThumb" class="np-thumb"
+        src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='52' height='52'%3E%3Crect width='52' height='52' fill='%231e1e1e'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dominant-baseline='middle' font-size='24'%3E%F0%9F%8E%B5%3C/text%3E%3C/svg%3E"
+        alt="cover" />
+      <div class="np-info">
+        <h4 id="npTitle">Nothing playing</h4>
+        <p id="npArtist">—</p>
+      </div>
+      <button class="np-like" id="npLike"><i class="fa-regular fa-heart"></i></button>
+    </div>
+
+    <!-- Desktop Center Controls -->
+    <div class="controls">
+      <div class="ctrl-btns">
+        <button class="ctrl-btn" id="shuffleBtn" title="Shuffle"><i class="fa-solid fa-shuffle"></i></button>
+        <button class="ctrl-btn" id="prevBtn" title="Previous"><i class="fa-solid fa-backward-step"></i></button>
+        <button id="playBtn"><i class="fa-solid fa-play" id="playIcon"></i></button>
+        <button class="ctrl-btn" id="nextBtn" title="Next"><i class="fa-solid fa-forward-step"></i></button>
+        <button class="ctrl-btn" id="repeatBtn" title="Repeat"><i class="fa-solid fa-repeat"></i></button>
+      </div>
+      <div class="progress-wrap">
+        <span class="time" id="curTime">0:00</span>
+        <div class="progress-bar" id="progressBar">
+          <div class="progress-fill" id="progressFill" style="width:0%"></div>
+          <div class="progress-thumb" id="progressThumb"></div>
+        </div>
+        <span class="time" id="durTime">0:00</span>
+      </div>
+    </div>
+
+    <!-- Desktop Right Controls -->
+    <div class="right-ctrl">
+      <span id="sleepBadge"><i class="fa-solid fa-moon"></i><span id="sleepCountdown"></span></span>
+      <button class="ctrl-btn" id="autoplayBtn" title="Autoplay" style="position:relative">
+        <i class="fa-solid fa-infinity"></i>
+        <span id="autoplayDot"
+          style="position:absolute;top:2px;right:2px;width:6px;height:6px;border-radius:50%;background:var(--accent3);display:block"></span>
+      </button>
+      <button class="ctrl-btn" id="sleepBtn" title="Sleep Timer"><i class="fa-solid fa-moon"></i></button>
+      <button class="ctrl-btn" id="radioBtn" title="Start Radio"><i class="fa-solid fa-tower-broadcast"></i></button>
+      <div class="vol-wrap">
+        <button class="icon-btn" id="muteBtn"><i class="fa-solid fa-volume-high" id="volIcon"></i></button>
+        <div class="vol-bar" id="volBar">
+          <div class="vol-fill" id="volFill" style="width:80%"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ MOBILE PLAYER CONTROLS (always visible on mobile) ═══ -->
+    <img id="mobThumb" class="np-thumb" style="display:none"
+      src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44'%3E%3Crect width='44' height='44' fill='%231e1e1e'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dominant-baseline='middle' font-size='20'%3E%F0%9F%8E%B5%3C/text%3E%3C/svg%3E"
+      alt="cover" />
+    <div class="np-info-wrap" id="mobInfo" style="display:none">
+      <h4 id="mobTitle">Nothing playing</h4>
+      <p id="mobArtist">—</p>
+    </div>
+    <button class="mob-ctrl-btn" id="mobPrevBtn" style="display:none"><i class="fa-solid fa-backward-step"></i></button>
+    <button id="mobPlayBtn" style="display:none"><i class="fa-solid fa-play" id="mobPlayIcon"></i></button>
+    <button class="mob-ctrl-btn" id="mobNextBtn" style="display:none"><i class="fa-solid fa-forward-step"></i></button>
+    <button class="mob-ctrl-btn liked-false" id="mobLikeBtn" style="display:none"><i
+        class="fa-regular fa-heart"></i></button>
+  </footer>
+
+  <!-- Mobile bottom nav -->
+  <nav id="mobileNav">
+    <button class="mob-nav-btn active" data-view="home">
+      <i class="fa-solid fa-house"></i>
+      <span class="indicator-line"></span>
+    </button>
+    <button class="mob-nav-btn" data-view="search">
+      <i class="fa-solid fa-magnifying-glass"></i>
+      <span class="indicator-line"></span>
+    </button>
+    <button class="mob-nav-btn" data-view="library">
+      <i class="fa-solid fa-book-open"></i>
+      <span class="indicator-line"></span>
+    </button>
+  </nav>
+
+  <!-- Queue Panel -->
+  <div id="queuePanel">
+    <div class="queue-header">
+      <h3>Queue</h3>
+      <button class="icon-btn" id="closeQueue"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="queue-items" id="queueItems"></div>
+  </div>
+
+  <!-- Now Playing Expanded (full-screen immersive) -->
+  <div id="npExpanded">
+    <div id="expBgBlur"></div>
+    <div class="exp-top-bar">
+      <button class="exp-close" id="closeExpanded"><i class="fa-solid fa-chevron-down"></i></button>
+      <span>Now Playing</span>
+      <button class="exp-close" id="expQueueTop" style="font-size:14px" title="Queue"><i
+          class="fa-solid fa-list"></i></button>
+    </div>
+    <img id="expThumb" class="exp-thumb" src="" alt="cover" />
+    <div class="exp-song-block" style="width:100%">
+      <div class="exp-info">
+        <div class="exp-info-text">
+          <div class="exp-title" id="expTitle">Nothing playing</div>
+          <div class="exp-artist" id="expArtist">—</div>
+        </div>
+        <button class="exp-action" id="expLike" style="padding:8px"><i class="fa-regular fa-heart"
+            style="font-size:22px"></i></button>
+      </div>
+    </div>
+    <div class="exp-progress">
+      <div class="exp-bar" id="expBar">
+        <div class="exp-fill" id="expFill" style="width:0%"></div>
+      </div>
+      <div class="exp-times">
+        <span id="expCur">0:00</span>
+        <span id="expDur">0:00</span>
+      </div>
+    </div>
+    <div class="exp-controls">
+      <button class="exp-ctrl" id="expShuffle"><i class="fa-solid fa-shuffle"></i></button>
+      <button class="exp-ctrl" id="expPrev"><i class="fa-solid fa-backward-step"></i></button>
+      <button class="exp-play" id="expPlay"><i class="fa-solid fa-play" id="expPlayIcon"></i></button>
+      <button class="exp-ctrl" id="expNext"><i class="fa-solid fa-forward-step"></i></button>
+      <button class="exp-ctrl" id="expRepeat"><i class="fa-solid fa-repeat"></i></button>
+    </div>
+    <div class="exp-actions">
+      <button class="exp-action" id="expAutoplay"><i class="fa-solid fa-infinity"></i><span>Auto</span></button>
+      <button class="exp-action" id="expSleepBtn"><i class="fa-solid fa-moon"></i><span>Sleep</span></button>
+      <button class="exp-action" id="expQueue"><i class="fa-solid fa-list"></i><span>Queue</span></button>
+      <button class="exp-action" id="expRadio"><i class="fa-solid fa-tower-broadcast"></i><span>Radio</span></button>
+    </div>
+  </div>
+
+  <!-- Sleep Timer Modal -->
+  <div id="sleepModal">
+    <div class="sleep-card">
+      <h3><i class="fa-solid fa-moon" style="color:var(--accent)"></i> Sleep Timer</h3>
+      <div class="sleep-options">
+        <button class="sleep-opt" data-min="15">15 min</button>
+        <button class="sleep-opt" data-min="30">30 min</button>
+        <button class="sleep-opt" data-min="45">45 min</button>
+        <button class="sleep-opt" data-min="60">1 hour</button>
+        <button class="sleep-opt" data-min="90">1.5 hrs</button>
+        <button class="sleep-opt" data-min="120">2 hours</button>
+      </div>
+      <button class="sleep-cancel" id="sleepCancel">Cancel / Turn Off</button>
+    </div>
+  </div>
+
+  <!-- Hidden YT player -->
+  <audio id="audioPlayer" preload="metadata" crossorigin="anonymous"></audio>
+  <div id="toast"></div>
+
+
+  <!-- ═══════════ AUTH OVERLAY (AudioX Splash & Form) ═══════════ -->
+  <div id="authOverlay" class="auth-overlay">
+    <!-- Welcome splash screen -->
+    <div id="welcomeView" class="auth-view welcome-view">
+      <div class="welcome-bg-img"></div>
+      <div class="welcome-content">
+        <h1 class="welcome-logo">AudioX</h1>
+        <p class="welcome-subtitle">Listen to free music from your favorite artists.</p>
+        <button class="btn-primary auth-btn-large" id="welcomeGetStarted">Get started</button>
+        <button class="btn-text-link" id="welcomeHasAccount">I already have an account</button>
+      </div>
+    </div>
+
+    <!-- Sign-up / Login Form Screen -->
+    <div id="authFormView" class="auth-view auth-form-view hidden">
+      <div class="auth-form-card">
+        <h2 id="authFormTitle" class="auth-title">Hi!</h2>
+        <p id="authFormSubtitle" class="auth-subtitle">Sign up to start listening to all your favorite artists.</p>
+        
+        <div class="auth-fields">
+          <div class="auth-field" id="fieldUsername">
+            <input type="text" id="authUsername" placeholder="Username" autocomplete="username" />
+          </div>
+          <div class="auth-field" id="fieldEmail">
+            <input type="email" id="authEmail" placeholder="Email" autocomplete="email" />
+          </div>
+          <div class="auth-field" id="fieldPassword">
+            <input type="password" id="authPassword" placeholder="Password" autocomplete="new-password" />
+          </div>
+          <div class="auth-field" id="fieldConfirmPassword">
+            <input type="password" id="authConfirmPassword" placeholder="Confirm password" autocomplete="new-password" />
+          </div>
+        </div>
+
+        <button class="btn-primary auth-btn-large" id="authSubmitBtn">Register</button>
+        
+        <div class="auth-toggle-wrap">
+          <button class="btn-text-link" id="authToggleBtn">Already have an account? Sign In</button>
+        </div>
+
+        <div class="auth-divider">or continue with</div>
+
+        <div class="auth-socials">
+          <button class="btn-social" id="btnGoogle">Google</button>
+          <button class="btn-social" id="btnFacebook">Facebook</button>
+        </div>
+
+        <button class="btn-guest-link" id="authGuestBtn">Continue as Guest</button>
+        <div class="login-error" id="authError"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════ UP NEXT PANEL ═══════════ -->
+  <div id="upNextPanel">
+    <button class="upnext-close" onclick="closeUpNext()"><i class="fa-solid fa-xmark"></i></button>
+    <div class="upnext-header">
+      <div class="upnext-playing-label">Playing from</div>
+      <div class="upnext-playing-title" id="upnextPlayingTitle">—</div>
+    </div>
+    <div class="upnext-tabs">
+      <button class="upnext-tab active" onclick="switchUpNextTab('upnext',this)">Up Next</button>
+      <button class="upnext-tab" onclick="switchUpNextTab('related',this)">Related</button>
+    </div>
+    <div class="upnext-autoplay">
+      <div>
+        <span>Autoplay</span>
+        <p>Add similar content to end of queue</p>
+      </div>
+      <div id="autoplayToggleVis" onclick="toggleAutoplay(!isAutoplay)"
+        style="display:inline-flex;width:44px;height:24px;background:var(--accent);border-radius:12px;align-items:center;padding:2px;transition:background .2s;cursor:pointer">
+        <span
+          style="width:20px;height:20px;background:white;border-radius:50%;transition:transform .2s;transform:translateX(20px)"></span>
+      </div>
+    </div>
+    <div class="upnext-filter-row" id="upnextFilterRow">
+      <button class="upnext-chip active" onclick="applyUpNextFilter('all',this)">All</button>
+      <button class="upnext-chip" onclick="applyUpNextFilter('upbeat',this)">Upbeat</button>
+      <button class="upnext-chip" onclick="applyUpNextFilter('discover',this)">Discover</button>
+    </div>
+    <div id="upnextPersonalizedBadge" class="upnext-personalized-badge" style="display:none">
+      <i class="fa-solid fa-wand-magic-sparkles"></i> Personalized for you
+    </div>
+    <div class="upnext-list" id="upnextList">
+      <div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">Play a song to see Up Next</div>
+    </div>
+  </div>
+  <script src="/script.js"></script>
+</body>
+
+</html>

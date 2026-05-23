@@ -1,0 +1,108 @@
+{
+  "u_d68755a2c93f7c0b": {
+    "name": "TestUser",
+    "pinHash": "$2b$10$IN.i/3CaoHloTAAWtKnAWuL3R4Eqs9eMC62sAZiNQgO66ejgcjA4K",
+    "created": "2026-05-22T14:59:01.948Z",
+    "history": [],
+    "liked": [],
+    "artistWeights": {},
+    "genreWeights": {},
+    "moodWeights": {}
+  },
+  "u_6f1ca4c631cea14b": {
+    "name": "Shivam",
+    "pinHash": "$2b$10$MzRCf7N3BGq44fP3VYH44e.0q/NRX704YYx.632.n9TCc2ilWYPe2",
+    "created": "2026-05-22T15:00:32.449Z",
+    "history": [
+      {
+        "id": "68RLvhxk_4g",
+        "title": "Bollywood Dj Non Stop Remix(Remix By Dj Jitesh,Psynth)",
+        "artist": "Bollywood Dj",
+        "genre": "bollywood",
+        "mood": "party dance",
+        "completionPct": 1,
+        "playedAt": 1779464867322
+      },
+      {
+        "id": "N7jDUBRVQVA",
+        "title": "Tum Ho Toh (Movie: Saiyaara)",
+        "artist": "Vishal Mishra",
+        "genre": "pop",
+        "mood": "",
+        "completionPct": 8,
+        "playedAt": 1779464555295
+      },
+      {
+        "id": "vDCnew2uhT4",
+        "title": "Main Koi Aisa Geet Gaoon",
+        "artist": "Abhijeet",
+        "genre": "pop",
+        "mood": "",
+        "completionPct": 5,
+        "playedAt": 1779464147106
+      },
+      {
+        "id": "gOSM2dEqwsE",
+        "title": "Pehli Dafa",
+        "artist": "Atif Aslam",
+        "genre": "pop",
+        "mood": "",
+        "completionPct": 11,
+        "playedAt": 1779464133334
+      },
+      {
+        "id": "usvVGXFIpTM",
+        "title": "Jo Tum Mere Ho",
+        "artist": "Anuv Jain",
+        "genre": "pop",
+        "mood": "",
+        "completionPct": 100,
+        "playedAt": 1779463607931
+      },
+      {
+        "id": "-BJt4fCAtZE",
+        "title": "Arz Kiya Hai | Coke Studio Bharat",
+        "artist": "Anuv Jain",
+        "genre": "pop",
+        "mood": "",
+        "completionPct": 6,
+        "playedAt": 1779463354508
+      },
+      {
+        "id": "dn8u2_K2cpE",
+        "title": "Bairan - Bhajan Version",
+        "artist": "Priyankit Jaiswal",
+        "genre": "pop",
+        "mood": "",
+        "completionPct": 7,
+        "playedAt": 1779463257047
+      },
+      {
+        "id": "OsfAnsMY21M",
+        "title": "Levitating",
+        "artist": "Dua Lipa",
+        "genre": "pop",
+        "mood": "",
+        "completionPct": 8,
+        "playedAt": 1779463218734
+      }
+    ],
+    "liked": [],
+    "artistWeights": {
+      "Dua Lipa": 1,
+      "Priyankit Jaiswal": 1,
+      "Anuv Jain": 4,
+      "Atif Aslam": 1,
+      "Abhijeet": 1,
+      "Vishal Mishra": 1,
+      "Bollywood Dj": 1
+    },
+    "genreWeights": {
+      "pop": 9,
+      "bollywood": 1
+    },
+    "moodWeights": {
+      "party dance": 1
+    }
+  }
+}
