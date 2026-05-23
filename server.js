@@ -920,7 +920,7 @@ app.get('/api/stream/:id', async (req, res) => {
   const tryInnertube = async () => {
     const audioUrl = await getCachedInnertubeUrl(id);
     const rangeHeader = req.headers.range;
-    const upHeaders = { 'User-Agent': 'Mozilla/5.0 (compatible; Mestify/2.0)' };
+    const upHeaders = { 'User-Agent': innerTube.session.user_agent };
     if (rangeHeader) upHeaders['Range'] = rangeHeader;
 
     const upstream = await axios({ method: 'get', url: audioUrl, headers: upHeaders, responseType: 'stream', timeout: 30000 });
