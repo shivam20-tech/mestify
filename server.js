@@ -24,7 +24,7 @@ const ON_RENDER = !!process.env.RENDER;
 // ════════════════════════════════════════════════════════════════
 //  FLAT-FILE USER DATABASE  (users.json — free forever)
 // ════════════════════════════════════════════════════════════════
-const USERS_FILE = path.join(__dirname, 'users.json');
+const USERS_FILE = process.env.DATABASE_PATH || path.join(__dirname, 'users.json');
 
 function readUsers() {
   try {
