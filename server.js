@@ -46,9 +46,14 @@ function generateToken() {
 const tokenStore = new Map();
 
 function getUserByToken(token) {
-  const userId = tokenStore.get(token);
-  if (!userId) return null;
   const users = readUsers();
+  let userId = tokenStore.get(token);
+  if (!userId) {
+    const entry = Object.entries(users).find(([, user]) => (user.tokens || []).includes(token));
+    if (!entry) return null;
+    userId = entry[0];
+    tokenStore.set(token, userId);
+  }
   return users[userId] ? { ...users[userId], userId } : null;
 }
 
@@ -470,6 +475,7 @@ app.post('/api/auth/register', async (req, res) => {
     artistWeights: {},
     genreWeights:  {},
     moodWeights:   {},
+    tokens:         [token],
   };
   writeUsers(users);
   tokenStore.set(token, userId);
@@ -495,6 +501,8 @@ app.post('/api/auth/login', async (req, res) => {
   if (!match) return res.status(401).json({ error: 'Wrong Password. Try again.' });
 
   const token = generateToken();
+  user.tokens = [...new Set([...(user.tokens || []), token])].slice(-5);
+  writeUsers(users);
   tokenStore.set(token, userId);
 
   console.log(`[auth] ✅ Login: ${user.name}`);

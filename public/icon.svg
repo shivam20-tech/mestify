@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Mestify">
+  <rect width="512" height="512" rx="96" fill="#050505"/>
+  <circle cx="256" cy="256" r="176" fill="#5c46e4"/>
+  <circle cx="256" cy="256" r="128" fill="#0a0a0a"/>
+  <path d="M316 133v183c0 43-35 78-79 78-37 0-67-24-67-54 0-31 30-55 67-55 17 0 32 5 45 13V169l34-36z" fill="#43e97b"/>
+</svg>

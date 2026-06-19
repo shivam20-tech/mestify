@@ -4,6 +4,7 @@
   "description": "Mestify Music Streaming - Backend API",
   "main": "server.js",
   "scripts": {
+    "check": "node -e \"const fs=require('fs'); for (const f of ['server.js','public/script.js']) { new Function(fs.readFileSync(f,'utf8')); console.log('ok '+f); }\"",
     "start": "node server.js",
     "dev": "nodemon server.js"
   },

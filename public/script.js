@@ -1372,6 +1372,14 @@ function continueAsGuest() {
     showToast('👋 Listening as guest');
 }
 
+function mockSocialLogin(provider) {
+    const errEl = document.getElementById('authError');
+    if (errEl) {
+        errEl.textContent = `${provider} sign-in is not connected yet. Use username and password for now.`;
+    }
+    showToast(`${provider} sign-in coming soon`);
+}
+
 function logoutUser(e) {
     if (e) e.stopPropagation();
     currentUser = null;
