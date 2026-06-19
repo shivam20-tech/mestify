@@ -36,6 +36,7 @@ function addToRecentlyPlayed(song) {
 //  AUDIO PLAYER (works on iOS background + lock screen!)
 // ═══════════════════════════════════════════════════════════════
 const audio = document.getElementById('audioPlayer');
+audio.preload = 'auto';
 audio.volume = volume / 100;
 ytReady = true; // for compatibility with rest of code
 
@@ -84,6 +85,14 @@ audio.addEventListener('error', () => {
 audio.addEventListener('loadedmetadata', () => {
     document.getElementById('durTime').textContent = fmtTime(audio.duration);
     document.getElementById('expDur').textContent = fmtTime(audio.duration);
+});
+
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && isPlaying && audio.paused && audio.src) {
+        audio.play().catch(() => {
+            toast('Tap play to resume music');
+        });
+    }
 });
 
 // Wrapper to make audio compatible with old YT player calls
@@ -1707,4 +1716,10 @@ function renderProfile() {
 // ─── BOOT ────────────────────────────────────────────────────────────────
 initAuth();
 renderHome();
+
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+    });
+}
 
